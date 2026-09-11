@@ -27,7 +27,7 @@ const API_BASE_URL = API_ORIGIN;
 const HINTS_URL = `${API_BASE_URL}/api/uservideo/search/hints`;
 
 export default function Navbar({ onMenuPress, points = 0 }) {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -40,6 +40,15 @@ export default function Navbar({ onMenuPress, points = 0 }) {
   const [showHints, setShowHints] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
+  const redirectToLogin = () => {
+    const rootNavigation = navigation.getParent()?.getParent();
+    if (rootNavigation?.replace) {
+      rootNavigation.replace("Login");
+    } else {
+      navigation.replace("Login");
+    }
+  };
+
   // ===== Trust Score (same logic as web) =====
   const trustScore = Math.max(0, Math.min(100, Number(user?.trustScore ?? 50)));
   const trustTier =
@@ -51,7 +60,11 @@ export default function Navbar({ onMenuPress, points = 0 }) {
     const checkAuth = async () => {
       const token = await AsyncStorage.getItem("token");
       setIsLoggedIn(Boolean(token));
-      if (token) fetchProfile(token);
+      if (token) {
+        fetchProfile(token);
+      } else {
+        redirectToLogin();
+      }
     };
     checkAuth();
   }, []);
@@ -62,9 +75,18 @@ export default function Navbar({ onMenuPress, points = 0 }) {
       const res = await axios.get(`${API_BASE_URL}/api/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setUser(res.data.user || res.data);
+      const profile = res.data?.user || res.data;
+
+      if (!res.data?.success || !profile || typeof profile !== "object") {
+        throw new Error("Login data was not returned");
+      }
+
+      setUser(profile);
     } catch (err) {
-      if (err.response?.status === 401) handleSignOut();
+      await AsyncStorage.multiRemove(["token", "user"]);
+      setUser(null);
+      setIsLoggedIn(false);
+      redirectToLogin();
     } finally {
       setLoading(false);
     }
@@ -131,7 +153,7 @@ export default function Navbar({ onMenuPress, points = 0 }) {
       setUser(null);
       setIsLoggedIn(false);
       setIsDropdownOpen(false);
-      navigation.navigate("Login");
+      redirectToLogin();
     }
   };
 
@@ -161,21 +183,23 @@ export default function Navbar({ onMenuPress, points = 0 }) {
             <Text style={styles.logoText}>BharatPlay</Text>
 
             {/* Search icon next to logo */}
-           <View style={styles.badgesRow}>
-          <View style={styles.pointsBadge}>
-            <Text style={styles.star}>★</Text>
-            <Text style={styles.pointsText}>{Number(points).toFixed(1)}</Text>
-            <Text style={styles.ptsLabel}>pts</Text>
-          </View>
+            <View style={styles.badgesRow}>
+              <View style={styles.pointsBadge}>
+                <Text style={styles.star}>★</Text>
+                <Text style={styles.pointsText}>
+                  {Number(points).toFixed(1)}
+                </Text>
+                <Text style={styles.ptsLabel}>pts</Text>
+              </View>
 
-          {isLoggedIn && (
-            <View style={styles.trustBadge}>
-              <Text style={styles.trustIcon}>🛡️</Text>
-              <Text style={styles.trustScoreText}>{trustScore}</Text>
-              <Text style={styles.trustLabel}>trust</Text>
+              {isLoggedIn && (
+                <View style={styles.trustBadge}>
+                  <Text style={styles.trustIcon}>🛡️</Text>
+                  <Text style={styles.trustScoreText}>{trustScore}</Text>
+                  <Text style={styles.trustLabel}>trust</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
           </View>
 
           {/* Right: Avatar / Sign in */}
@@ -207,7 +231,6 @@ export default function Navbar({ onMenuPress, points = 0 }) {
         </View>
 
         {/* Badges Row: Points + Trust Score (below logo) */}
-        
 
         {/* Full-width Search */}
         <View style={styles.searchContainer}>

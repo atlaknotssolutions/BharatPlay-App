@@ -21,7 +21,7 @@
 // }
 
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, AppState, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -32,6 +32,7 @@ import AdminTabNavigator from "./AdminTabNavigator";
 import VideoDetailScreen from "../admin/VideoDetailScreen";
 import CopyrightScreen from "../screens/CopyrightClaimScreen";
 import CopyrightClaimScreen from "../screens/CopyrightClaimScreen";
+import { API_ORIGIN } from "../../config/api";
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
@@ -42,8 +43,27 @@ export default function AppNavigator() {
     const restoreSession = async () => {
       try {
         const token = await AsyncStorage.getItem("token");
-        setHasSession(Boolean(token));
+        if (!token) {
+          setHasSession(false);
+          return;
+        }
+
+        const response = await fetch(`${API_ORIGIN}/api/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json().catch(() => ({}));
+        const user = data?.user;
+
+        if (!response.ok || !data?.success || !user) {
+          await AsyncStorage.multiRemove(["token", "user"]);
+          setHasSession(false);
+          return;
+        }
+
+        await AsyncStorage.setItem("user", JSON.stringify(user));
+        setHasSession(true);
       } catch {
+        await AsyncStorage.multiRemove(["token", "user"]);
         setHasSession(false);
       } finally {
         setSessionLoading(false);
@@ -51,6 +71,18 @@ export default function AppNavigator() {
     };
 
     restoreSession();
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+
+      AsyncStorage.getItem("token")
+        .then((token) => setHasSession(Boolean(token)))
+        .catch(() => setHasSession(false));
+    });
+
+    return () => subscription.remove();
   }, []);
 
   if (sessionLoading) {
@@ -71,6 +103,7 @@ export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator
+        key={hasSession ? "authenticated" : "guest"}
         id="RootStack"
         initialRouteName={hasSession ? "AdminPanel" : "Login"}
         screenOptions={{ headerShown: false }}

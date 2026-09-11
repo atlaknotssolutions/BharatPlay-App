@@ -39,6 +39,13 @@ const googleConfig = Constants.expoConfig?.extra?.google || {};
 const GOOGLE_WEB_CLIENT_ID = googleConfig.webClientId || "";
 const GOOGLE_ANDROID_CLIENT_ID = googleConfig.androidClientId || "";
 const GOOGLE_IOS_CLIENT_ID = googleConfig.iosClientId || "";
+const isGoogleClientId = (value) =>
+  value.endsWith(".apps.googleusercontent.com") && !value.startsWith("GOCSPX-");
+const GOOGLE_CONFIGURED = Boolean(
+  isGoogleClientId(GOOGLE_WEB_CLIENT_ID) &&
+  isGoogleClientId(GOOGLE_ANDROID_CLIENT_ID) &&
+  isGoogleClientId(GOOGLE_IOS_CLIENT_ID),
+);
 
 export default function LoginScreen({ navigation }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -294,6 +301,15 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!GOOGLE_CONFIGURED) {
+      Toast.show({
+        type: "info",
+        text1: "Google Sign-In unavailable",
+        text2: "Configure Google OAuth IDs in the local .env file.",
+      });
+      return;
+    }
+
     try {
       setGoogleLoading(true);
       setError("");
@@ -755,7 +771,12 @@ export default function LoginScreen({ navigation }) {
 
                       <TouchableOpacity
                         onPress={handleGoogleSignIn}
-                        disabled={!request || loading || googleLoading}
+                        disabled={
+                          !GOOGLE_CONFIGURED ||
+                          !request ||
+                          loading ||
+                          googleLoading
+                        }
                         activeOpacity={0.85}
                         style={[
                           styles.googleButton,
