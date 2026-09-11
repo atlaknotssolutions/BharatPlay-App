@@ -678,7 +678,7 @@ const normalizeShort = (video = {}) => ({
 
 const SECTIONS = {
   recommended: {
-    title: "Recommended Videos",
+    title: "Recommended for you",
     endpoint: "recommended",
     normalize: normalizeVideoListItem,
     isShort: false,
