@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Bharatplay",
+    "slug": "Bharatplay",
+    "scheme": "bharatplay",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/Bharatplay-Cb3qGLyP-Cb3qGLyP.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/Bharatplay-Cb3qGLyP-Cb3qGLyP.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bharatplay.MyApp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/Bharatplay-Cb3qGLyP-Cb3qGLyP.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.bharatplay.app",
+      "usesCleartextTraffic": true,
+      "permissions": []
+    },
+    "web": {
+      "favicon": "./assets/Bharatplay-Cb3qGLyP-Cb3qGLyP.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      "expo-video",
+      "react-native-video",
+      "expo-audio",
+      "expo-asset",
+      "@react-native-vector-icons/fontisto",
+      "@react-native-vector-icons/ionicons",
+      "@react-native-vector-icons/material-icons"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f6070fe6-3a5f-4b4c-9fd4-4cc8d261ddab"
+      }
+    }
+  }
+}
