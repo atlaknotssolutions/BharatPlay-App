@@ -39,19 +39,13 @@ import {
   ArrowLeft,
   LogOut,
   User,
-  Shield,
   HelpCircle,
-  Moon,
 } from "lucide-react-native";
 
 const { width } = Dimensions.get("window");
 
 const API_BASE = `${API_ORIGIN}/api`;
 const BACKEND_URL = API_ORIGIN;
-
-// Local testing:
-// const API_BASE = "https://exp://192.168.1.14:8081/api";
-// const BACKEND_URL = "https://exp://192.168.1.14:8081";
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
@@ -74,10 +68,9 @@ export default function ProfileScreen() {
   const [watchLaterLoading, setWatchLaterLoading] = useState(false);
   const [likedLoading, setLikedLoading] = useState(false);
 
-  // History pagination + error
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const [historyError, setHistoryError] = useState(null); // "auth" | "server" | "network" | null
+  const [historyError, setHistoryError] = useState(null);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({ name: "", email: "" });
@@ -102,30 +95,66 @@ export default function ProfileScreen() {
 
   const [showMenu, setShowMenu] = useState(false);
 
+  // ========== HELPERS ==========
   const getMediaUrl = (path) => {
     if (!path) return null;
     const cleaned = String(path).replace(/\\/g, "/");
     if (cleaned.startsWith("http")) return cleaned;
+    if (cleaned.startsWith("/")) return `${BACKEND_URL}${cleaned}`;
     return `${BACKEND_URL}/${cleaned}`;
   };
 
-  const mapVideo = (v) => ({
-    id: v._id || v.id,
-    _id: v._id || v.id,
-    title: v.title || "Untitled",
-    thumbnail: v.thumbnail || null,
-    channel:
-      v.channelName ||
-      (typeof v.channel === "object" ? v.channel?.name : v.channel) ||
-      "Unknown",
-    duration: v.duration && v.duration !== "—" ? v.duration : null,
-    views: v.views || 0,
-    likes: v.likesCount || v.likes || 0,
-    videoUrl: v.videoUrl,
-    watchedAt: v.watchedAt || v.watchedDate || null,
-    uploadDate: v.createdAt,
-    description: v.description || "",
-  });
+  const formatDuration = (duration) => {
+    if (!duration || duration === "—") return null;
+    if (typeof duration === "string" && duration.includes(":")) return duration;
+    const sec = Math.floor(Number(duration) || 0);
+    if (sec <= 0) return null;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  // FIXED mapVideo - handles both nested (history) and flat structure
+  const mapVideo = (v) => {
+    if (!v) return null;
+
+    // History items often come as { video: {...}, watchedAt: "..." }
+    const source = v.video || v;
+
+    const id = source._id || source.id || v._id || v.id;
+    if (!id) return null;
+
+    return {
+      id,
+      _id: id,
+      title: source.title || v.title || "Untitled",
+      thumbnail: getMediaUrl(
+        source.thumbnail || source.thumb || source.poster || v.thumbnail,
+      ),
+      channel:
+        source.channelName ||
+        v.channelName ||
+        (typeof (source.channel || v.channel) === "object"
+          ? (source.channel || v.channel)?.name
+          : source.channel || v.channel) ||
+        "Unknown",
+      duration: formatDuration(source.duration || v.duration),
+      views: source.views || v.views || 0,
+      likes: source.likesCount || source.likes || v.likesCount || v.likes || 0,
+      videoUrl: source.videoUrl || v.videoUrl,
+      watchedAt: v.watchedAt || v.watchedDate || null,
+      uploadDate: source.createdAt || v.createdAt,
+      description: source.description || v.description || "",
+    };
+  };
+
+  const getHistoryItems = (data) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.videos)) return data.videos;
+    if (Array.isArray(data?.history)) return data.history;
+    if (Array.isArray(data?.data)) return data.data;
+    return [];
+  };
 
   // ─── Fetch Profile ───
   useEffect(() => {
@@ -200,7 +229,7 @@ export default function ProfileScreen() {
     fetchProfile();
   }, [navigation]);
 
-  // ─── Fetch History (fixed) ───
+  // ─── Fetch History (FULLY FIXED) ───
   const fetchHistory = async (pageNum = 1) => {
     try {
       setHistoryLoading(true);
@@ -217,7 +246,7 @@ export default function ProfileScreen() {
         `${API_BASE}/uservideo/history?page=${pageNum}&limit=20`,
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       if (res.status === 401 || res.status === 403) {
@@ -233,7 +262,8 @@ export default function ProfileScreen() {
       }
 
       const data = await res.json();
-      const mapped = (data.videos || []).map(mapVideo);
+      const historyItems = getHistoryItems(data);
+      const mapped = historyItems.map(mapVideo).filter(Boolean);
 
       if (pageNum === 1) {
         setHistoryVideos(mapped);
@@ -241,7 +271,7 @@ export default function ProfileScreen() {
         setHistoryVideos((prev) => [...prev, ...mapped]);
       }
 
-      setHistoryTotal(data.total ?? mapped.length);
+      setHistoryTotal(data.total ?? data.count ?? mapped.length);
       setHistoryPage(pageNum);
     } catch (e) {
       console.warn("History fetch error:", e);
@@ -272,10 +302,10 @@ export default function ProfileScreen() {
       }
 
       const data = await res.json();
-      const mapped = (data.videos || []).map(mapVideo);
+      const mapped = (data.videos || []).map(mapVideo).filter(Boolean);
       setWatchLaterVideos(mapped);
       setUser((prev) =>
-        prev ? { ...prev, watchLaterCount: mapped.length } : prev
+        prev ? { ...prev, watchLaterCount: mapped.length } : prev,
       );
     } catch (e) {
       console.warn("Watch Later fetch error:", e);
@@ -301,7 +331,7 @@ export default function ProfileScreen() {
       }
 
       const data = await res.json();
-      const mapped = (data.videos || []).map(mapVideo);
+      const mapped = (data.videos || []).map(mapVideo).filter(Boolean);
       setLikedVideos(mapped);
       setUser((prev) => (prev ? { ...prev, likedCount: mapped.length } : prev));
     } catch (e) {
@@ -344,21 +374,24 @@ export default function ProfileScreen() {
           try {
             const vRes = await fetch(
               `${API_BASE}/uservideo/channel/${ch._id}/videos`,
-              { headers: { Authorization: `Bearer ${token}` } }
+              { headers: { Authorization: `Bearer ${token}` } },
             );
             if (!vRes.ok) continue;
 
             const vData = await vRes.json();
             (vData.videos || []).forEach((v) => {
-              allVideos.push({
-                ...mapVideo(v),
-                channel: v.channel?.name || ch.name,
-                earnings: v.earnings || 0,
-                dislikes: v.dislikesCount ?? v.dislikes ?? 0,
-                commentsCount: Array.isArray(v.comments)
-                  ? v.comments.length
-                  : v.commentsCount || 0,
-              });
+              const mapped = mapVideo(v);
+              if (mapped) {
+                allVideos.push({
+                  ...mapped,
+                  channel: v.channel?.name || ch.name,
+                  earnings: v.earnings || 0,
+                  dislikes: v.dislikesCount ?? v.dislikes ?? 0,
+                  commentsCount: Array.isArray(v.comments)
+                    ? v.comments.length
+                    : v.commentsCount || 0,
+                });
+              }
             });
           } catch (err) {
             console.warn("Channel videos error:", err);
@@ -366,7 +399,7 @@ export default function ProfileScreen() {
         }
 
         allVideos.sort(
-          (a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0)
+          (a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0),
         );
 
         setMyVideos(allVideos);
@@ -379,7 +412,7 @@ export default function ProfileScreen() {
                 totalVideos: allVideos.length,
                 totalViews: prev.totalViews || totalViews,
               }
-            : prev
+            : prev,
         );
       } catch (e) {
         console.warn("My videos fetch error:", e);
@@ -668,7 +701,7 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f0f0f" />
 
-      {/* Top bar - extra top padding */}
+      {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.accountsBtn}
@@ -728,7 +761,7 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* History */}
+            {/* ========== HISTORY (FIXED) ========== */}
             <View style={styles.section}>
               <TouchableOpacity
                 style={styles.sectionHeader}
@@ -754,7 +787,7 @@ export default function ProfileScreen() {
                   data={historyVideos}
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  keyExtractor={(item) => item.id || item._id}
+                  keyExtractor={(item) => String(item.id || item._id)}
                   contentContainerStyle={{ paddingHorizontal: 12, gap: 10 }}
                   renderItem={({ item }) => (
                     <TouchableOpacity
@@ -762,21 +795,23 @@ export default function ProfileScreen() {
                       onPress={() => openVideo(item)}
                       activeOpacity={0.85}
                     >
-                      <Image
-                        source={{
-                          uri:
-                            item.thumbnail ||
-                            "https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=400",
-                        }}
-                        style={styles.historyThumb}
-                      />
-                      {item.duration ? (
-                        <View style={styles.durationBadge}>
-                          <Text style={styles.durationText}>
-                            {item.duration}
-                          </Text>
-                        </View>
-                      ) : null}
+                      <View>
+                        <Image
+                          source={{
+                            uri:
+                              item.thumbnail ||
+                              "https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=400",
+                          }}
+                          style={styles.historyThumb}
+                        />
+                        {item.duration ? (
+                          <View style={styles.durationBadge}>
+                            <Text style={styles.durationText}>
+                              {item.duration}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.historyTitle} numberOfLines={2}>
                         {item.title}
                       </Text>
@@ -891,7 +926,7 @@ export default function ProfileScreen() {
             {renderVideoList(
               watchLaterVideos,
               watchLaterLoading,
-              "No videos in Watch Later"
+              "No videos in Watch Later",
             )}
           </View>
         )}
@@ -906,6 +941,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* Full History Tab */}
         {activeTab === "history" && (
           <View style={styles.section}>
             <ListHeader
@@ -950,7 +986,7 @@ export default function ProfileScreen() {
                         {(video.views || 0).toLocaleString()} views
                         {video.watchedAt
                           ? `  •  Watched ${new Date(
-                              video.watchedAt
+                              video.watchedAt,
                             ).toLocaleDateString()}`
                           : ""}
                       </Text>
@@ -1002,8 +1038,8 @@ export default function ProfileScreen() {
                     s === "latest"
                       ? "views"
                       : s === "views"
-                      ? "earnings"
-                      : "latest"
+                        ? "earnings"
+                        : "latest",
                   )
                 }
               >
@@ -1011,8 +1047,8 @@ export default function ProfileScreen() {
                   {sortBy === "latest"
                     ? "Latest"
                     : sortBy === "views"
-                    ? "Most viewed"
-                    : "Highest earnings"}
+                      ? "Most viewed"
+                      : "Highest earnings"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1020,7 +1056,7 @@ export default function ProfileScreen() {
             {renderVideoList(
               sortedMyVideos,
               videosLoading,
-              "No videos yet. Upload your first video!"
+              "No videos yet. Upload your first video!",
             )}
           </View>
         )}
@@ -1046,7 +1082,7 @@ export default function ProfileScreen() {
         )}
       </ScrollView>
 
-      {/* ═══════════════ YOUTUBE-STYLE SETTINGS MENU ═══════════════ */}
+      {/* Settings Menu */}
       <Modal
         visible={showMenu}
         transparent
@@ -1059,10 +1095,8 @@ export default function ProfileScreen() {
           onPress={() => setShowMenu(false)}
         >
           <View style={styles.menuSheet}>
-            {/* Handle bar */}
             <View style={styles.menuHandle} />
 
-            {/* User row */}
             <View style={styles.menuUserRow}>
               <Image source={{ uri: user.avatar }} style={styles.menuAvatar} />
               <View style={{ flex: 1 }}>
@@ -1076,7 +1110,6 @@ export default function ProfileScreen() {
 
             <View style={styles.menuDivider} />
 
-            {/* Menu items - YouTube style */}
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => {
@@ -1440,7 +1473,6 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#fff", fontWeight: "600" },
 
-  // Top bar - extra top padding
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1531,12 +1563,12 @@ const styles = StyleSheet.create({
   },
   durationBadge: {
     position: "absolute",
-    bottom: 48,
+    bottom: 6,
     right: 6,
-    backgroundColor: "rgba(0,0,0,0.8)",
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   durationText: { color: "#fff", fontSize: 11, fontWeight: "600" },
   historyTitle: {
@@ -1616,7 +1648,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ─── YouTube-style bottom sheet menu ───
   menuOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.65)",
@@ -1679,7 +1710,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
 
-  // Modals
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",

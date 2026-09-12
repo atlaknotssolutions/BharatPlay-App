@@ -89,6 +89,9 @@ export default function VideoDetailScreen() {
   );
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [watchedPercent, setWatchedPercent] = useState(
+    Math.max(0, Math.min(100, Number(routeVideo?.watchedPercent) || 0)),
+  );
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -137,6 +140,8 @@ export default function VideoDetailScreen() {
   const nextTargetRef = useRef(null);
   const playedVideoIdsRef = useRef(new Set());
   const viewTracked = useRef(false);
+  const resumeApplied = useRef(false);
+  const lastProgressSent = useRef(0);
 
   // ==================== MEDIA URLS ====================
   const resolvedVideoUrl = useMemo(() => {
@@ -255,6 +260,8 @@ export default function VideoDetailScreen() {
       setIsPlaying(true);
       setViewCounted(false);
       viewTracked.current = false;
+      resumeApplied.current = false;
+      lastProgressSent.current = 0;
       cancelCountdown();
     };
     load();
@@ -316,6 +323,8 @@ export default function VideoDetailScreen() {
   useEffect(() => {
     const fetchAll = async () => {
       if (!routeId) return;
+      setWatchedPercent(0);
+      resumeApplied.current = false;
       const token = await AsyncStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -341,6 +350,9 @@ export default function VideoDetailScreen() {
               payload.inWatchLater ??
               payload.isInWatchLater,
             ),
+          );
+          setWatchedPercent(
+            Math.max(0, Math.min(100, Number(payload.watchedPercent) || 0)),
           );
           setIsSubscribed(Boolean(payload.isSubscribed));
           setSubscribersCount(
@@ -417,11 +429,15 @@ export default function VideoDetailScreen() {
 
     (async () => {
       try {
+        const token = await AsyncStorage.getItem("token");
         const userStr = await AsyncStorage.getItem("user");
         const user = userStr ? JSON.parse(userStr) : null;
         await fetch(`${API_BASE}/${routeId}/view`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({
             watchedPercent: 0,
             userId: user?._id || user?.id || null,
@@ -462,6 +478,48 @@ export default function VideoDetailScreen() {
       } catch {}
     })();
   }, [currentTime, duration, routeId, viewCounted]);
+
+  // Resume from the last saved position, like YouTube.
+  useEffect(() => {
+    if (!player || !duration || resumeApplied.current || watchedPercent <= 0) {
+      return;
+    }
+
+    const resumeAt = Math.min(duration, (watchedPercent / 100) * duration);
+    if (resumeAt < duration - 2) {
+      player.currentTime = resumeAt;
+      setCurrentTime(resumeAt);
+    }
+    resumeApplied.current = true;
+  }, [player, duration, watchedPercent]);
+
+  // Save the latest position so History can resume it.
+  useEffect(() => {
+    if (!routeId || !duration || !currentTime) return;
+    const percent = Math.min(100, Math.round((currentTime / duration) * 100));
+    setWatchedPercent(percent);
+    if (percent < 1 || currentTime - lastProgressSent.current < 10) return;
+
+    lastProgressSent.current = currentTime;
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem("token");
+        const userStr = await AsyncStorage.getItem("user");
+        const user = userStr ? JSON.parse(userStr) : null;
+        await fetch(`${API_BASE}/${routeId}/view`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            watchedPercent: percent,
+            userId: user?._id || user?.id || null,
+          }),
+        });
+      } catch {}
+    })();
+  }, [currentTime, duration, routeId]);
 
   // ==================== CONTROLS ====================
   useEffect(() => {
