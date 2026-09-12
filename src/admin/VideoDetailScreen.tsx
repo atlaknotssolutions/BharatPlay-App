@@ -101,6 +101,14 @@ export default function VideoDetailScreen() {
   );
   const [liked, setLiked] = useState(Boolean(routeVideo?.isLiked));
   const [disliked, setDisliked] = useState(Boolean(routeVideo?.isDisliked));
+  const [isWatchLater, setIsWatchLater] = useState(
+    Boolean(
+      routeVideo?.isWatchLater ??
+      routeVideo?.inWatchLater ??
+      routeVideo?.isInWatchLater,
+    ),
+  );
+  const [watchLaterLoading, setWatchLaterLoading] = useState(false);
 
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribersCount, setSubscribersCount] = useState(0);
@@ -157,7 +165,7 @@ export default function VideoDetailScreen() {
     p.play();
   });
 
-  // ==================== HELPERS (must be before useEvent) ====================
+  // ==================== HELPERS ====================
   const cancelCountdown = useCallback(() => {
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
@@ -327,6 +335,13 @@ export default function VideoDetailScreen() {
           setDisliked(
             Boolean(payload.isDisliked || payload.userReaction === "dislike"),
           );
+          setIsWatchLater(
+            Boolean(
+              payload.isWatchLater ??
+              payload.inWatchLater ??
+              payload.isInWatchLater,
+            ),
+          );
           setIsSubscribed(Boolean(payload.isSubscribed));
           setSubscribersCount(
             Number(
@@ -367,7 +382,6 @@ export default function VideoDetailScreen() {
         if (Array.isArray(data?.videos)) list = data.videos;
         else if (Array.isArray(data?.data)) list = data.data;
 
-        // Fallback to general list if related fails
         if (list.length === 0) {
           res = await fetch(`${API_BASE}?limit=15&exclude=${routeId}`, {
             headers,
@@ -378,7 +392,6 @@ export default function VideoDetailScreen() {
           else if (Array.isArray(data)) list = data;
         }
 
-        // Remove current + already played in this session
         const currentId = String(routeId);
         const watched = playedVideoIdsRef.current;
         list = list.filter((v) => {
@@ -516,13 +529,27 @@ export default function VideoDetailScreen() {
         },
       });
       const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setLikesCount(Number(data.likes ?? likesCount));
-        setDislikesCount(Number(data.dislikes ?? dislikesCount));
-        setLiked(data.reaction === "like");
-        setDisliked(data.reaction === "dislike");
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || "Unable to update like.");
       }
-    } catch (e) {}
+
+      setLikesCount(Number(data.likes ?? data.likesCount ?? likesCount));
+      setDislikesCount(
+        Number(data.dislikes ?? data.dislikesCount ?? dislikesCount),
+      );
+      setLiked(
+        typeof data.liked === "boolean"
+          ? data.liked
+          : data.reaction === "like" || data.userReaction === "like",
+      );
+      setDisliked(
+        typeof data.disliked === "boolean"
+          ? data.disliked
+          : data.reaction === "dislike" || data.userReaction === "dislike",
+      );
+    } catch (e) {
+      Alert.alert("Error", "Unable to update like. Please try again.");
+    }
   };
 
   const handleDislike = async () => {
@@ -540,13 +567,68 @@ export default function VideoDetailScreen() {
         },
       });
       const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setLikesCount(Number(data.likes ?? likesCount));
-        setDislikesCount(Number(data.dislikes ?? dislikesCount));
-        setLiked(data.reaction === "like");
-        setDisliked(data.reaction === "dislike");
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || "Unable to update dislike.");
       }
-    } catch (e) {}
+
+      setLikesCount(Number(data.likes ?? data.likesCount ?? likesCount));
+      setDislikesCount(
+        Number(data.dislikes ?? data.dislikesCount ?? dislikesCount),
+      );
+      setLiked(
+        typeof data.liked === "boolean"
+          ? data.liked
+          : data.reaction === "like" || data.userReaction === "like",
+      );
+      setDisliked(
+        typeof data.disliked === "boolean"
+          ? data.disliked
+          : data.reaction === "dislike" || data.userReaction === "dislike",
+      );
+    } catch (e) {
+      Alert.alert("Error", "Unable to update dislike. Please try again.");
+    }
+  };
+
+  const handleWatchLater = async () => {
+    const token = await AsyncStorage.getItem("token");
+    if (!token) {
+      Alert.alert("Login required", "Please login to use Watch Later.");
+      return;
+    }
+
+    setWatchLaterLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/watch-later/${routeId}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setIsWatchLater(
+          Boolean(data.added ?? data.isWatchLater ?? !isWatchLater),
+        );
+        Alert.alert(
+          "Watch Later",
+          data.message ||
+            (isWatchLater
+              ? "Removed from Watch Later"
+              : "Added to Watch Later"),
+        );
+      } else {
+        Alert.alert(
+          "Watch Later",
+          data?.message || "Could not update Watch Later.",
+        );
+      }
+    } catch (e) {
+      Alert.alert("Watch Later", "Something went wrong. Please try again.");
+    } finally {
+      setWatchLaterLoading(false);
+    }
   };
 
   const handleSubscribe = async () => {
@@ -655,7 +737,9 @@ export default function VideoDetailScreen() {
             {item.title || "Untitled"}
           </Text>
           <Text style={styles.suggestedMeta} numberOfLines={1}>
-            {item.channel?.name || item.channel || "Channel"} •{" "}
+            {item.channel?.name || item.channel || "Channel"}
+          </Text>
+          <Text style={styles.suggestedViews}>
             {formatCount(item.views)} views
           </Text>
         </View>
@@ -768,46 +852,33 @@ export default function VideoDetailScreen() {
             </View>
           )}
 
-          {/* ========== CONTROLS OVERLAY ========== */}
+          {/* ========== CONTROLS OVERLAY (YouTube style) ========== */}
           {showControls && !upNextOverlay && (
             <View style={styles.playerControls} pointerEvents="box-none">
+              {/* Top bar */}
               <View style={styles.topBar}>
                 <TouchableOpacity
-                  style={styles.controlBtn}
+                  style={styles.iconBtn}
                   onPress={() => navigation.goBack()}
                 >
-                  <Ionicons name="arrow-back" size={18} color="#fff" />
-                  <Text style={styles.controlBtnText}>Back</Text>
+                  <Ionicons name="arrow-back" size={22} color="#fff" />
                 </TouchableOpacity>
 
-                <View style={styles.playerActions}>
-                  <TouchableOpacity
-                    style={styles.controlBtn}
-                    onPress={() => setIsMuted((previous) => !previous)}
-                  >
-                    <Ionicons
-                      name={isMuted ? "volume-mute" : "volume-high"}
-                      size={18}
-                      color="#fff"
-                    />
-                    <Text style={styles.controlBtnText}>
-                      {isMuted ? "Sound off" : "Sound on"}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.controlBtn}
-                    onPress={() => navigation.navigate("Copyright")}
-                  >
-                    <Ionicons
-                      name="shield-checkmark-outline"
-                      size={18}
-                      color="#fff"
-                    />
-                    <Text style={styles.controlBtnText}>Copyright</Text>
-                  </TouchableOpacity>
-                </View>
+                <View style={{ flex: 1 }} />
+
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={() => setIsMuted((p) => !p)}
+                >
+                  <Ionicons
+                    name={isMuted ? "volume-mute" : "volume-high"}
+                    size={22}
+                    color="#fff"
+                  />
+                </TouchableOpacity>
               </View>
 
+              {/* Center Play/Pause */}
               <TouchableOpacity
                 style={styles.centerPlay}
                 onPress={handleTogglePlayPause}
@@ -816,30 +887,47 @@ export default function VideoDetailScreen() {
                 <View style={styles.playCircle}>
                   <Ionicons
                     name={isPlaying ? "pause" : "play"}
-                    size={40}
+                    size={36}
                     color="#fff"
                   />
                 </View>
-                <Text style={styles.playHint}>
-                  {isPlaying ? "Pause" : "Start"}
-                </Text>
               </TouchableOpacity>
+
+              {/* Bottom progress + time (YouTube style) */}
+              <View style={styles.bottomControls}>
+                <Text style={styles.timeText}>
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </Text>
+
+                <Slider
+                  style={styles.slider}
+                  minimumValue={0}
+                  maximumValue={1}
+                  value={progress}
+                  onSlidingComplete={handleSeek}
+                  minimumTrackTintColor="#ff0000"
+                  maximumTrackTintColor="rgba(255,255,255,0.3)"
+                  thumbTintColor="#ff0000"
+                />
+              </View>
             </View>
           )}
         </View>
 
-        {/* ================= INFO ================= */}
-        <View style={styles.infoCard}>
-          <Text style={styles.title}>
+        {/* ================= INFO (YouTube style) ================= */}
+        <View style={styles.infoSection}>
+          <Text style={styles.title} numberOfLines={2}>
             {videoDetails?.title || FALLBACK_VIDEO.title}
           </Text>
+
           <Text style={styles.meta}>
-            {formatCount(videoDetails?.views || 0)} views •{" "}
+            {formatCount(videoDetails?.views || 0)} views
             {videoDetails?.createdAt
-              ? new Date(videoDetails.createdAt).toLocaleDateString()
-              : "Recently"}
+              ? `  •  ${new Date(videoDetails.createdAt).toLocaleDateString()}`
+              : ""}
           </Text>
 
+          {/* Channel row */}
           <View style={styles.channelRow}>
             <Image
               source={{
@@ -849,8 +937,8 @@ export default function VideoDetailScreen() {
               }}
               style={styles.channelAvatar}
             />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.channelName}>
+            <View style={styles.channelInfo}>
+              <Text style={styles.channelName} numberOfLines={1}>
                 {videoDetails?.channel?.name ||
                   videoDetails?.channel ||
                   "Channel"}
@@ -871,7 +959,7 @@ export default function VideoDetailScreen() {
               {subscribeLoading ? (
                 <ActivityIndicator
                   size="small"
-                  color={isSubscribed ? "#fff" : "#000"}
+                  color={isSubscribed ? "#fff" : "#0f0f0f"}
                 />
               ) : (
                 <Text
@@ -886,7 +974,12 @@ export default function VideoDetailScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.actionRow}>
+          {/* Action buttons (YouTube style pills) */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.actionRow}
+          >
             <TouchableOpacity
               style={[styles.actionBtn, liked && styles.actionBtnActive]}
               onPress={handleLike}
@@ -912,19 +1005,45 @@ export default function VideoDetailScreen() {
                 {formatCount(dislikesCount)}
               </Text>
             </TouchableOpacity>
-          </View>
 
-          <Text style={styles.description}>
-            {videoDetails?.description || FALLBACK_VIDEO.description}
-          </Text>
+            <TouchableOpacity
+              style={[styles.actionBtn, isWatchLater && styles.actionBtnActive]}
+              onPress={handleWatchLater}
+              disabled={watchLaterLoading}
+            >
+              {watchLaterLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons
+                  name={isWatchLater ? "bookmark" : "bookmark-outline"}
+                  size={18}
+                  color="#fff"
+                />
+              )}
+              <Text style={styles.actionText}>
+                {isWatchLater ? "Saved" : "Save"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionBtn}>
+              <Ionicons name="share-outline" size={18} color="#fff" />
+              <Text style={styles.actionText}>Share</Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Description */}
+          <View style={styles.descriptionBox}>
+            <Text style={styles.description} numberOfLines={3}>
+              {videoDetails?.description || FALLBACK_VIDEO.description}
+            </Text>
+          </View>
         </View>
 
-        {/* ================= SUGGESTED VIDEOS ================= */}
+        {/* ================= UP NEXT (YouTube mobile style - vertical) ================= */}
         <View style={styles.suggestedSection}>
           <View style={styles.suggestedHeader}>
             <Text style={styles.sectionTitle}>Up next</Text>
 
-            {/* Autoplay Toggle */}
             <View style={styles.autoplayRow}>
               <Text style={styles.autoplayLabel}>Autoplay</Text>
               <TouchableOpacity
@@ -942,15 +1061,14 @@ export default function VideoDetailScreen() {
           </View>
 
           {suggestedLoading ? (
-            <ActivityIndicator color="#fff" style={{ marginVertical: 20 }} />
+            <ActivityIndicator color="#fff" style={{ marginVertical: 24 }} />
           ) : suggestedVideos.length > 0 ? (
             <FlatList
               data={suggestedVideos}
               keyExtractor={(item) => String(item._id || item.id)}
               renderItem={renderSuggestedItem}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 12 }}
+              scrollEnabled={false}
+              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
             />
           ) : (
             <Text style={styles.emptyText}>No suggestions available</Text>
@@ -1022,6 +1140,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+
+  // ========== PLAYER ==========
   videoWrapper: {
     width: SCREEN_WIDTH,
     aspectRatio: 16 / 9,
@@ -1032,170 +1152,68 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   tapZones: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     flexDirection: "row",
   },
   tapZone: {
     flex: 1,
   },
-  overlay: {
-    ...StyleSheet.absoluteFill,
-    justifyContent: "space-between",
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
   playerControls: {
-    ...StyleSheet.absoluteFill,
-    justifyContent: "center",
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "space-between",
   },
   topBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
     paddingTop: Platform.OS === "ios" ? 48 : 16,
-    gap: 10,
-  },
-  playerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  videoTitle: {
-    flex: 1,
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
   },
   iconBtn: {
-    backgroundColor: "rgba(0,0,0,0.45)",
-    padding: 8,
-    borderRadius: 20,
-  },
-  controlBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 9,
-    paddingVertical: 7,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    width: 36,
+    height: 36,
     borderRadius: 18,
-  },
-  controlBtnText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
+    justifyContent: "center",
+    alignItems: "center",
   },
   centerPlay: {
     alignSelf: "center",
   },
   playCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "center",
     alignItems: "center",
   },
-  playHint: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 5,
-    textShadowColor: "rgba(0,0,0,0.6)",
-    textShadowRadius: 3,
-  },
   bottomControls: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingBottom: 10,
-  },
-  slider: {
-    width: "100%",
-    height: 32,
-  },
-  timeRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
   },
   timeText: {
     color: "#fff",
     fontSize: 12,
+    marginBottom: 2,
   },
-  copyrightModal: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  copyrightBackdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(0,0,0,0.62)",
-  },
-  copyrightSheet: {
-    backgroundColor: "#18181b",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 18,
-    paddingBottom: Platform.OS === "ios" ? 30 : 18,
-  },
-  copyrightHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  copyrightTitle: {
-    color: "#fff",
-    fontSize: 19,
-    fontWeight: "800",
-  },
-  copyrightSubtitle: {
-    color: "#a1a1aa",
-    fontSize: 13,
-    marginTop: 5,
-  },
-  copyrightInput: {
-    minHeight: 120,
-    maxHeight: 180,
-    color: "#fff",
-    backgroundColor: "#0f0f0f",
-    borderWidth: 1,
-    borderColor: "#3f3f46",
-    borderRadius: 12,
-    paddingHorizontal: 13,
-    paddingVertical: 12,
-    fontSize: 14,
-    textAlignVertical: "top",
-  },
-  copyrightSubmit: {
-    minHeight: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#ef4444",
-    borderRadius: 12,
-    marginTop: 12,
-  },
-  copyrightSubmitText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  disabledButton: {
-    opacity: 0.45,
+  slider: {
+    width: "100%",
+    height: 28,
   },
 
   // ========== UP NEXT OVERLAY ==========
   upNextOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(0,0,0,0.88)",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 20,
   },
   upNextCard: {
     width: "88%",
-    backgroundColor: "#1a1a1a",
-    borderRadius: 14,
+    backgroundColor: "#212121",
+    borderRadius: 12,
     padding: 16,
   },
   countdownRow: {
@@ -1258,11 +1276,10 @@ const styles = StyleSheet.create({
   },
 
   // ========== INFO ==========
-  infoCard: {
-    backgroundColor: "#18181b",
-    margin: 12,
-    borderRadius: 14,
-    padding: 14,
+  infoSection: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
   title: {
     color: "#fff",
@@ -1271,21 +1288,24 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   meta: {
-    color: "#a1a1aa",
+    color: "#aaa",
     fontSize: 13,
     marginTop: 6,
   },
   channelRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 14,
+    marginTop: 16,
     gap: 12,
   },
   channelAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#333",
+  },
+  channelInfo: {
+    flex: 1,
   },
   channelName: {
     color: "#fff",
@@ -1293,7 +1313,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   subscribersText: {
-    color: "#a1a1aa",
+    color: "#aaa",
     fontSize: 12,
     marginTop: 2,
   },
@@ -1301,15 +1321,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 18,
     minWidth: 100,
     alignItems: "center",
   },
   subscribedBtn: {
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "#272727",
   },
   subscribeText: {
-    color: "#000",
+    color: "#0f0f0f",
     fontWeight: "700",
     fontSize: 13,
   },
@@ -1318,44 +1338,49 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
     marginTop: 16,
+    paddingRight: 12,
   },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 20,
+    backgroundColor: "#272727",
+    borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 8,
     gap: 6,
   },
   actionBtnActive: {
-    backgroundColor: "rgba(239,68,68,0.25)",
+    backgroundColor: "#3f3f3f",
   },
   actionText: {
     color: "#fff",
     fontSize: 13,
     fontWeight: "600",
   },
+  descriptionBox: {
+    marginTop: 14,
+    backgroundColor: "#272727",
+    borderRadius: 12,
+    padding: 12,
+  },
   description: {
-    color: "#d4d4d8",
+    color: "#ddd",
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 14,
   },
 
-  // ========== SUGGESTED ==========
+  // ========== SUGGESTED (vertical like YouTube mobile) ==========
   suggestedSection: {
-    marginTop: 4,
-    marginBottom: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
   },
   suggestedHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginHorizontal: 14,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   sectionTitle: {
     color: "#fff",
@@ -1368,116 +1393,120 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   autoplayLabel: {
-    color: "#ccc",
+    color: "#aaa",
     fontSize: 13,
   },
   switch: {
-    width: 36,
-    height: 20,
-    borderRadius: 10,
+    width: 40,
+    height: 22,
+    borderRadius: 11,
     justifyContent: "center",
     paddingHorizontal: 2,
   },
   switchOn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#3ea6ff",
   },
   switchOff: {
     backgroundColor: "#555",
   },
   switchThumb: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "#fff",
   },
   switchThumbOn: {
     alignSelf: "flex-end",
   },
   suggestedCard: {
-    width: 210,
-    marginRight: 12,
-    backgroundColor: "#18181b",
-    borderRadius: 12,
-    overflow: "hidden",
+    flexDirection: "row",
+    gap: 12,
   },
   suggestedThumb: {
-    width: "100%",
-    height: 118,
+    width: 168,
+    height: 94,
+    borderRadius: 8,
     backgroundColor: "#222",
   },
   suggestedInfo: {
-    padding: 10,
+    flex: 1,
+    justifyContent: "center",
   },
   suggestedTitle: {
     color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "500",
     lineHeight: 18,
   },
   suggestedMeta: {
-    color: "#a1a1aa",
-    fontSize: 11,
+    color: "#aaa",
+    fontSize: 12,
     marginTop: 4,
+  },
+  suggestedViews: {
+    color: "#aaa",
+    fontSize: 12,
+    marginTop: 2,
   },
 
   // ========== COMMENTS ==========
   commentsCard: {
-    backgroundColor: "#18181b",
     marginHorizontal: 12,
-    marginTop: 8,
-    borderRadius: 14,
+    marginTop: 20,
+    backgroundColor: "#181818",
+    borderRadius: 12,
     padding: 14,
   },
   commentInputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 10,
+    marginTop: 12,
   },
   commentInput: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 110,
+    minHeight: 42,
+    maxHeight: 100,
     backgroundColor: "#0f0f0f",
     color: "#fff",
-    borderRadius: 10,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#333",
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
   },
   postBtn: {
-    backgroundColor: "#ef4444",
-    paddingHorizontal: 14,
+    backgroundColor: "#3ea6ff",
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
-    minWidth: 72,
+    borderRadius: 20,
+    minWidth: 70,
     alignItems: "center",
   },
   postBtnText: {
-    color: "#fff",
+    color: "#0f0f0f",
     fontWeight: "700",
+    fontSize: 13,
   },
   commentItem: {
     backgroundColor: "#0f0f0f",
     borderRadius: 10,
     padding: 12,
     marginTop: 10,
-    borderWidth: 1,
-    borderColor: "#262626",
   },
   commentText: {
     color: "#fff",
     fontSize: 14,
   },
   commentMeta: {
-    color: "#a1a1aa",
+    color: "#aaa",
     fontSize: 12,
     marginTop: 4,
   },
   emptyText: {
-    color: "#a1a1aa",
+    color: "#aaa",
     fontSize: 13,
-    marginHorizontal: 14,
+    marginTop: 12,
   },
   loadingContainer: {
     paddingVertical: 20,

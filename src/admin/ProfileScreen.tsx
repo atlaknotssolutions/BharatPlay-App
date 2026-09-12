@@ -74,6 +74,11 @@ export default function ProfileScreen() {
   const [watchLaterLoading, setWatchLaterLoading] = useState(false);
   const [likedLoading, setLikedLoading] = useState(false);
 
+  // History pagination + error
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyError, setHistoryError] = useState(null); // "auth" | "server" | "network" | null
+
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({ name: "", email: "" });
   const [avatarUri, setAvatarUri] = useState(null);
@@ -117,7 +122,7 @@ export default function ProfileScreen() {
     views: v.views || 0,
     likes: v.likesCount || v.likes || 0,
     videoUrl: v.videoUrl,
-    watchedDate: v.watchedDate,
+    watchedAt: v.watchedAt || v.watchedDate || null,
     uploadDate: v.createdAt,
     description: v.description || "",
   });
@@ -195,34 +200,60 @@ export default function ProfileScreen() {
     fetchProfile();
   }, [navigation]);
 
-  // ─── Fetch History ───
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        setHistoryLoading(true);
-        const token = await AsyncStorage.getItem("token");
-        if (!token) return;
+  // ─── Fetch History (fixed) ───
+  const fetchHistory = async (pageNum = 1) => {
+    try {
+      setHistoryLoading(true);
+      setHistoryError(null);
 
-        const res = await fetch(`${API_BASE}/uservideo/history`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!res.ok) {
-          setHistoryVideos([]);
-          return;
-        }
-
-        const data = await res.json();
-        setHistoryVideos((data.videos || []).map(mapVideo));
-      } catch (e) {
-        console.warn("History fetch error:", e);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        setHistoryError("auth");
         setHistoryVideos([]);
-      } finally {
-        setHistoryLoading(false);
+        return;
       }
-    };
 
-    fetchHistory();
+      const res = await fetch(
+        `${API_BASE}/uservideo/history?page=${pageNum}&limit=20`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (res.status === 401 || res.status === 403) {
+        setHistoryError("auth");
+        setHistoryVideos([]);
+        return;
+      }
+
+      if (!res.ok) {
+        setHistoryError("server");
+        setHistoryVideos([]);
+        return;
+      }
+
+      const data = await res.json();
+      const mapped = (data.videos || []).map(mapVideo);
+
+      if (pageNum === 1) {
+        setHistoryVideos(mapped);
+      } else {
+        setHistoryVideos((prev) => [...prev, ...mapped]);
+      }
+
+      setHistoryTotal(data.total ?? mapped.length);
+      setHistoryPage(pageNum);
+    } catch (e) {
+      console.warn("History fetch error:", e);
+      setHistoryError("network");
+      setHistoryVideos([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory(1);
   }, []);
 
   const fetchWatchLater = async () => {
@@ -244,7 +275,7 @@ export default function ProfileScreen() {
       const mapped = (data.videos || []).map(mapVideo);
       setWatchLaterVideos(mapped);
       setUser((prev) =>
-        prev ? { ...prev, watchLaterCount: mapped.length } : prev,
+        prev ? { ...prev, watchLaterCount: mapped.length } : prev
       );
     } catch (e) {
       console.warn("Watch Later fetch error:", e);
@@ -313,7 +344,7 @@ export default function ProfileScreen() {
           try {
             const vRes = await fetch(
               `${API_BASE}/uservideo/channel/${ch._id}/videos`,
-              { headers: { Authorization: `Bearer ${token}` } },
+              { headers: { Authorization: `Bearer ${token}` } }
             );
             if (!vRes.ok) continue;
 
@@ -335,7 +366,7 @@ export default function ProfileScreen() {
         }
 
         allVideos.sort(
-          (a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0),
+          (a, b) => new Date(b.uploadDate || 0) - new Date(a.uploadDate || 0)
         );
 
         setMyVideos(allVideos);
@@ -348,7 +379,7 @@ export default function ProfileScreen() {
                 totalVideos: allVideos.length,
                 totalViews: prev.totalViews || totalViews,
               }
-            : prev,
+            : prev
         );
       } catch (e) {
         console.warn("My videos fetch error:", e);
@@ -707,11 +738,15 @@ export default function ProfileScreen() {
                 <ChevronRight size={20} color="#aaa" />
               </TouchableOpacity>
 
-              {historyLoading ? (
+              {historyLoading && historyVideos.length === 0 ? (
                 <ActivityIndicator
                   color="#ff0000"
                   style={{ marginVertical: 20 }}
                 />
+              ) : historyError === "auth" ? (
+                <Text style={styles.emptyHint}>
+                  Sign in to see watch history
+                </Text>
               ) : historyVideos.length === 0 ? (
                 <Text style={styles.emptyHint}>No history yet</Text>
               ) : (
@@ -856,7 +891,7 @@ export default function ProfileScreen() {
             {renderVideoList(
               watchLaterVideos,
               watchLaterLoading,
-              "No videos in Watch Later",
+              "No videos in Watch Later"
             )}
           </View>
         )}
@@ -873,11 +908,84 @@ export default function ProfileScreen() {
 
         {activeTab === "history" && (
           <View style={styles.section}>
-            <ListHeader title="History" count={historyVideos.length} />
-            {renderVideoList(
-              historyVideos,
-              historyLoading,
-              "No watch history yet",
+            <ListHeader
+              title="History"
+              count={historyTotal || historyVideos.length}
+            />
+
+            {historyLoading && historyVideos.length === 0 ? (
+              <ActivityIndicator
+                color="#ff0000"
+                style={{ marginVertical: 40 }}
+              />
+            ) : historyError === "auth" ? (
+              <Text style={styles.emptyHint}>
+                Sign in to see your watch history
+              </Text>
+            ) : historyVideos.length === 0 ? (
+              <Text style={styles.emptyHint}>No watch history yet</Text>
+            ) : (
+              <>
+                {historyVideos.map((video) => (
+                  <TouchableOpacity
+                    key={video.id || video._id}
+                    style={styles.videoRow}
+                    onPress={() => openVideo(video)}
+                    onLongPress={() => setSelectedVideo(video)}
+                    activeOpacity={0.85}
+                  >
+                    <Image
+                      source={{
+                        uri:
+                          video.thumbnail ||
+                          "https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=400",
+                      }}
+                      style={styles.videoThumb}
+                    />
+                    <View style={styles.videoInfo}>
+                      <Text style={styles.videoTitle} numberOfLines={2}>
+                        {video.title}
+                      </Text>
+                      <Text style={styles.videoMeta}>
+                        {(video.views || 0).toLocaleString()} views
+                        {video.watchedAt
+                          ? `  •  Watched ${new Date(
+                              video.watchedAt
+                            ).toLocaleDateString()}`
+                          : ""}
+                      </Text>
+                      {video.channel ? (
+                        <Text style={styles.channelHint} numberOfLines={1}>
+                          {video.channel}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {historyVideos.length < historyTotal && (
+                  <TouchableOpacity
+                    style={{
+                      marginVertical: 16,
+                      alignSelf: "center",
+                      backgroundColor: "#272727",
+                      paddingHorizontal: 20,
+                      paddingVertical: 10,
+                      borderRadius: 20,
+                    }}
+                    onPress={() => fetchHistory(historyPage + 1)}
+                    disabled={historyLoading}
+                  >
+                    {historyLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={{ color: "#fff", fontWeight: "600" }}>
+                        Load more
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </View>
         )}
@@ -894,8 +1002,8 @@ export default function ProfileScreen() {
                     s === "latest"
                       ? "views"
                       : s === "views"
-                        ? "earnings"
-                        : "latest",
+                      ? "earnings"
+                      : "latest"
                   )
                 }
               >
@@ -903,8 +1011,8 @@ export default function ProfileScreen() {
                   {sortBy === "latest"
                     ? "Latest"
                     : sortBy === "views"
-                      ? "Most viewed"
-                      : "Highest earnings"}
+                    ? "Most viewed"
+                    : "Highest earnings"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -912,7 +1020,7 @@ export default function ProfileScreen() {
             {renderVideoList(
               sortedMyVideos,
               videosLoading,
-              "No videos yet. Upload your first video!",
+              "No videos yet. Upload your first video!"
             )}
           </View>
         )}
