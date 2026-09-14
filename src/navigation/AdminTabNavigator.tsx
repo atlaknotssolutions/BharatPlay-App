@@ -7,7 +7,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 import DashboardScreen from "../admin/DashboardScreen";
 import ShortsScreen from "../admin/ShortsScreen";
-import ProfileScreen from "../admin/ProfileScreen";
+import { ProfileScreen } from "../admin/ProfileScreen";
 import VideoDetailScreen from "../admin/VideoDetailScreen";
 import ChannelScreen from "../admin/ChannelScreen";
 import Leaderboard from "../admin/Leaderboard";
@@ -34,6 +34,8 @@ function FallbackScreen({ name }) {
     </View>
   );
 }
+
+const ProfileRoute = ProfileScreen || FallbackScreen;
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
@@ -161,7 +163,7 @@ export default function AdminTabNavigator() {
       <Stack.Screen name="SubscribedChannels" component={SubscribedChannels} />
       <Stack.Screen name="Withdraw" component={WithdrawScreen} />
       <Stack.Screen name="ChannelScreen" component={ChannelScreen} />
-      <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="Profile" component={ProfileRoute} />
       <Stack.Screen name="Studio" component={ChannelScreen} />
       <Stack.Screen name="Leaderboard" component={Leaderboard} />
       <Stack.Screen name="ViewAll" component={ViewAll} />

@@ -142,6 +142,69 @@ export default function VideoDetailScreen() {
   const viewTracked = useRef(false);
   const resumeApplied = useRef(false);
   const lastProgressSent = useRef(0);
+  const latestTimeRef = useRef(0);
+  const latestDurationRef = useRef(0);
+
+  const saveWatchProgress = useCallback(
+    async (time, videoDuration) => {
+      if (!routeId || !videoDuration || !time) return;
+      const percent = Math.max(
+        1,
+        Math.min(100, Math.round((time / videoDuration) * 100)),
+      );
+
+      try {
+        const token = await AsyncStorage.getItem("token");
+        const userStr = await AsyncStorage.getItem("user");
+        const user = userStr ? JSON.parse(userStr) : null;
+        const res = await fetch(`${API_BASE}/${routeId}/view`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            watchedPercent: percent,
+            userId: user?._id || user?.id || null,
+          }),
+        });
+        if (!res.ok) console.warn("Watch progress save failed:", res.status);
+      } catch (error) {
+        console.warn("Watch progress save error:", error);
+      }
+    },
+    [routeId],
+  );
+
+  useEffect(() => {
+    if (!routeId || viewTracked.current) return;
+
+    viewTracked.current = true;
+    const registerWatch = async () => {
+      try {
+        const token = await AsyncStorage.getItem("token");
+        const userStr = await AsyncStorage.getItem("user");
+        const user = userStr ? JSON.parse(userStr) : null;
+
+        await fetch(`${API_BASE}/${routeId}/view`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            watchedPercent: 0,
+            userId: user?._id || user?.id || null,
+          }),
+        });
+      } catch {}
+    };
+
+    registerWatch();
+    return () => {
+      viewTracked.current = false;
+    };
+  }, [routeId]);
 
   // ==================== MEDIA URLS ====================
   const resolvedVideoUrl = useMemo(() => {
@@ -204,6 +267,7 @@ export default function VideoDetailScreen() {
   }, []);
 
   const handleVideoEnded = useCallback(() => {
+    saveWatchProgress(latestTimeRef.current, latestDurationRef.current);
     const next = getNextUpNext();
     if (!next) {
       setUpNextOverlay(null);
@@ -218,7 +282,7 @@ export default function VideoDetailScreen() {
       setUpNextOverlay(next);
       setCountdownLeft(null);
     }
-  }, [getNextUpNext, autoplay, startCountdown]);
+  }, [getNextUpNext, autoplay, startCountdown, saveWatchProgress]);
 
   // Unlock orientation
   useEffect(() => {
@@ -259,9 +323,10 @@ export default function VideoDetailScreen() {
       setDuration(0);
       setIsPlaying(true);
       setViewCounted(false);
-      viewTracked.current = false;
       resumeApplied.current = false;
       lastProgressSent.current = 0;
+      latestTimeRef.current = 0;
+      latestDurationRef.current = 0;
       cancelCountdown();
     };
     load();
@@ -295,6 +360,8 @@ export default function VideoDetailScreen() {
       const d = Number(payload?.duration || 0);
       setCurrentTime(t);
       if (d > 0) setDuration(d);
+      latestTimeRef.current = t;
+      if (d > 0) latestDurationRef.current = d;
     },
   );
 
@@ -422,31 +489,6 @@ export default function VideoDetailScreen() {
     fetchAll();
   }, [routeId]);
 
-  // ==================== VIEW TRACKING ====================
-  useEffect(() => {
-    if (!routeId || viewTracked.current) return;
-    viewTracked.current = true;
-
-    (async () => {
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const userStr = await AsyncStorage.getItem("user");
-        const user = userStr ? JSON.parse(userStr) : null;
-        await fetch(`${API_BASE}/${routeId}/view`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            watchedPercent: 0,
-            userId: user?._id || user?.id || null,
-          }),
-        });
-      } catch {}
-    })();
-  }, [routeId]);
-
   // Count view at 80%
   useEffect(() => {
     if (!routeId || !duration || viewCounted) return;
@@ -498,28 +540,23 @@ export default function VideoDetailScreen() {
     if (!routeId || !duration || !currentTime) return;
     const percent = Math.min(100, Math.round((currentTime / duration) * 100));
     setWatchedPercent(percent);
-    if (percent < 1 || currentTime - lastProgressSent.current < 10) return;
+    if (
+      percent < 1 ||
+      (lastProgressSent.current > 0 &&
+        currentTime - lastProgressSent.current < 10)
+    ) {
+      return;
+    }
 
     lastProgressSent.current = currentTime;
-    (async () => {
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const userStr = await AsyncStorage.getItem("user");
-        const user = userStr ? JSON.parse(userStr) : null;
-        await fetch(`${API_BASE}/${routeId}/view`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            watchedPercent: percent,
-            userId: user?._id || user?.id || null,
-          }),
-        });
-      } catch {}
-    })();
-  }, [currentTime, duration, routeId]);
+    saveWatchProgress(currentTime, duration);
+  }, [currentTime, duration, routeId, saveWatchProgress]);
+
+  useEffect(() => {
+    return () => {
+      saveWatchProgress(latestTimeRef.current, latestDurationRef.current);
+    };
+  }, [saveWatchProgress]);
 
   // ==================== CONTROLS ====================
   useEffect(() => {

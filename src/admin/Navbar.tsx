@@ -15,7 +15,7 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_ORIGIN } from "../../config/api";
@@ -25,6 +25,15 @@ import { API_ORIGIN } from "../../config/api";
 const { width } = Dimensions.get("window");
 const API_BASE_URL = API_ORIGIN;
 const HINTS_URL = `${API_BASE_URL}/api/uservideo/search/hints`;
+
+const resolveAvatarUrl = (avatar) => {
+  if (!avatar) return "";
+  const normalized = String(avatar).replace(/\\/g, "/").trim();
+  if (/^(https?|file|content|data):/i.test(normalized)) return normalized;
+  return normalized.startsWith("/")
+    ? `${API_BASE_URL}${normalized}`
+    : `${API_BASE_URL}/${normalized}`;
+};
 
 export default function Navbar({ onMenuPress, points = 0 }) {
   const navigation = useNavigation<any>();
@@ -81,7 +90,13 @@ export default function Navbar({ onMenuPress, points = 0 }) {
         throw new Error("Login data was not returned");
       }
 
-      setUser(profile);
+      const resolvedAvatar = resolveAvatarUrl(profile.avatar);
+      console.log("[Navbar] profile loaded", {
+        userId: profile._id,
+        avatar: profile.avatar,
+        resolvedAvatar,
+      });
+      setUser({ ...profile, avatar: resolvedAvatar });
     } catch (err) {
       await AsyncStorage.multiRemove(["token", "user"]);
       setUser(null);
@@ -91,6 +106,18 @@ export default function Navbar({ onMenuPress, points = 0 }) {
       setLoading(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      AsyncStorage.getItem("token").then((token) => {
+        if (active && token) fetchProfile(token);
+      });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   // Search hints
   useEffect(() => {
@@ -212,7 +239,16 @@ export default function Navbar({ onMenuPress, points = 0 }) {
                 {loading ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : user?.avatar ? (
-                  <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                  <Image
+                    source={{ uri: resolveAvatarUrl(user.avatar) }}
+                    style={styles.avatar}
+                    onError={(event) =>
+                      console.log("[Navbar] avatar load failed", {
+                        uri: user.avatar,
+                        error: event.nativeEvent.error,
+                      })
+                    }
+                  />
                 ) : (
                   <Text style={styles.avatarText}>
                     {user?.name ? user.name.charAt(0).toUpperCase() : "U"}
@@ -307,8 +343,14 @@ export default function Navbar({ onMenuPress, points = 0 }) {
               <View style={styles.dropdownAvatar}>
                 {user?.avatar ? (
                   <Image
-                    source={{ uri: user.avatar }}
+                    source={{ uri: resolveAvatarUrl(user.avatar) }}
                     style={styles.dropdownAvatarImg}
+                    onError={(event) =>
+                      console.log("[Navbar] dropdown avatar load failed", {
+                        uri: user.avatar,
+                        error: event.nativeEvent.error,
+                      })
+                    }
                   />
                 ) : (
                   <Text style={styles.dropdownAvatarText}>
@@ -378,7 +420,7 @@ export default function Navbar({ onMenuPress, points = 0 }) {
                     small
                     onPress={() => {
                       setIsDropdownOpen(false);
-                      navigation.navigate("History");
+                      navigation.navigate("Profile", { tab: "history" });
                     }}
                   />
                   <MenuItem

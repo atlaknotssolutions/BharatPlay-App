@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -25,12 +25,17 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const CARD_WIDTH = SCREEN_WIDTH * 0.42;
 const CARD_HEIGHT = CARD_WIDTH * (9 / 16);
+const TWO_CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
+const TWO_CARD_HEIGHT = TWO_CARD_WIDTH * (9 / 16);
+const CARD_GAP = 14;
+const TWO_CARD_SNAP_INTERVAL = TWO_CARD_WIDTH * 2 + CARD_GAP;
 
 const SHORT_WIDTH = (SCREEN_WIDTH - 44) / 2;
 const SHORT_HEIGHT = SHORT_WIDTH * (16 / 9);
 
 const BACKEND_URL = API_ORIGIN;
 const API_BASE = `${BACKEND_URL}/api/uservideo`;
+const FEED_PAGE_SIZE = 8;
 
 const toMediaUrl = (value: unknown, fallback: string) => {
   if (!value) return fallback;
@@ -117,17 +122,25 @@ const getArrayFromPayload = (payload) => {
   return [];
 };
 
-const fetchWithAuth = async (endpoint) => {
+const fetchWithAuth = async (endpoint, params = {}) => {
   try {
     const token = await AsyncStorage.getItem("token");
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined),
+    ).toString();
 
-    const res = await fetch(`${API_BASE}/${endpoint}`, { headers });
+    const res = await fetch(
+      `${API_BASE}/${endpoint}${query ? `?${query}` : ""}`,
+      {
+        headers,
+      },
+    );
     const data = await res.json().catch(() => ({}));
-    return getArrayFromPayload(data);
+    return data;
   } catch (e) {
     console.warn(`Fetch error (${endpoint}):`, e);
-    return [];
+    return { videos: [] };
   }
 };
 
@@ -147,9 +160,11 @@ function SectionHeader({ title, onPress }) {
   );
 }
 
-function MovieCard({ item, onPress, onAddToWatchLater }) {
+function MovieCard({ item, onPress, onAddToWatchLater, twoColumn = false }) {
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState(false);
+  const cardWidth = twoColumn ? TWO_CARD_WIDTH : CARD_WIDTH;
+  const cardHeight = twoColumn ? TWO_CARD_HEIGHT : CARD_HEIGHT;
 
   const handlePlus = async () => {
     if (adding || !onAddToWatchLater) return;
@@ -170,10 +185,14 @@ function MovieCard({ item, onPress, onAddToWatchLater }) {
     <TouchableOpacity
       activeOpacity={0.9}
       onPress={() => onPress(item)}
-      style={styles.cardWrapper}
+      style={[
+        styles.cardWrapper,
+        twoColumn && styles.twoColumnCardWrapper,
+        { width: cardWidth },
+      ]}
     >
       {/* Thumbnail */}
-      <View style={styles.card}>
+      <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
         <Image
           source={{ uri: item.thumb || item.thumbnail }}
           style={styles.cardImage}
@@ -238,74 +257,115 @@ export default function NetflixStylePage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   // Mixed feed for YouTube-like continuous scroll
   const [mixedFeed, setMixedFeed] = useState([]);
+  const nextPageRef = useRef(1);
+  const loadingMoreRef = useRef(false);
 
-  const loadHomeData = useCallback(async () => {
-    try {
-      const [
-        recommendedData,
-        trendingData,
-        latestData,
-        subscriptionsData,
-        shortsData,
-      ] = await Promise.all([
-        fetchWithAuth("recommended"),
-        fetchWithAuth("trending"),
-        fetchWithAuth("latest"),
-        fetchWithAuth("subscribed-channels"),
-        fetchWithAuth("trending-shorts"),
-      ]);
+  const loadHomeData = useCallback(
+    async (page = 1, append = false) => {
+      try {
+        const [
+          recommendedData,
+          trendingData,
+          latestData,
+          subscriptionsData,
+          shortsData,
+        ] = await Promise.all([
+          fetchWithAuth("recommended", {
+            page,
+            limit: FEED_PAGE_SIZE,
+            category: selectedCategoryId || undefined,
+          }),
+          fetchWithAuth("trending", {
+            page,
+            limit: FEED_PAGE_SIZE,
+            category: selectedCategoryId || undefined,
+          }),
+          fetchWithAuth("latest", {
+            page,
+            limit: FEED_PAGE_SIZE,
+            category: selectedCategoryId || undefined,
+          }),
+          append
+            ? Promise.resolve({ videos: [] })
+            : fetchWithAuth("subscribed-channels"),
+          append
+            ? Promise.resolve({ videos: [] })
+            : fetchWithAuth("trending-shorts"),
+        ]);
 
-      const rec = getArrayFromPayload(recommendedData).map(
-        normalizeVideoListItem,
-      );
-      const tren = getArrayFromPayload(trendingData).map(
-        normalizeVideoListItem,
-      );
-      const lat = getArrayFromPayload(latestData).map(normalizeVideoListItem);
-      const subs = getArrayFromPayload(subscriptionsData).map(
-        normalizeSubscriptionChannel,
-      );
-      const sh = getArrayFromPayload(shortsData).map(normalizeShort);
+        const rec = getArrayFromPayload(recommendedData).map(
+          normalizeVideoListItem,
+        );
+        const tren = getArrayFromPayload(trendingData).map(
+          normalizeVideoListItem,
+        );
+        const lat = getArrayFromPayload(latestData).map(normalizeVideoListItem);
+        const subs = getArrayFromPayload(subscriptionsData).map(
+          normalizeSubscriptionChannel,
+        );
+        const sh = getArrayFromPayload(shortsData).map(normalizeShort);
 
-      setRecommended(rec);
-      setTrending(tren);
-      setLatest(lat);
-      setSubscriptions(subs);
-      setShorts(sh);
-
-      // YouTube-style mixed algorithmic feed
-      // Priority: Recommended → Trending → Latest (interleaved)
-      const mixed = [];
-      const maxLen = Math.max(rec.length, tren.length, lat.length);
-
-      for (let i = 0; i < maxLen; i++) {
-        if (rec[i]) mixed.push({ ...rec[i], feedType: "recommended" });
-        if (tren[i]) mixed.push({ ...tren[i], feedType: "trending" });
-        if (lat[i]) mixed.push({ ...lat[i], feedType: "latest" });
-      }
-
-      // Remove duplicates by id
-      const unique = [];
-      const seen = new Set();
-      for (const item of mixed) {
-        if (!seen.has(item.id)) {
-          seen.add(item.id);
-          unique.push(item);
+        if (!append) {
+          setRecommended(rec);
+          setTrending(tren);
+          setLatest(lat);
+          setSubscriptions(subs);
+          setShorts(sh);
         }
-      }
 
-      setMixedFeed(unique);
-    } catch (error) {
-      console.warn("Home videos load error:", error);
-    }
-  }, []);
+        // YouTube-style mixed algorithmic feed
+        // Priority: Recommended → Trending → Latest (interleaved)
+        const mixed = [];
+        const maxLen = Math.max(rec.length, tren.length, lat.length);
+
+        for (let i = 0; i < maxLen; i++) {
+          if (rec[i]) mixed.push({ ...rec[i], feedType: "recommended" });
+          if (tren[i]) mixed.push({ ...tren[i], feedType: "trending" });
+          if (lat[i]) mixed.push({ ...lat[i], feedType: "latest" });
+        }
+
+        // Remove duplicates by id
+        const unique = [];
+        const seen = new Set();
+        for (const item of mixed) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            unique.push(item);
+          }
+        }
+
+        setMixedFeed((current) => {
+          if (!append) return unique;
+
+          const existingIds = new Set(current.map((item) => item.id));
+          return [
+            ...current,
+            ...unique.filter((item) => !existingIds.has(item.id)),
+          ];
+        });
+        nextPageRef.current = page;
+        setHasMore(
+          [recommendedData, trendingData, latestData].some(
+            (payload) => getArrayFromPayload(payload).length === FEED_PAGE_SIZE,
+          ),
+        );
+      } catch (error) {
+        console.warn("Home videos load error:", error);
+      }
+    },
+    [selectedCategoryId],
+  );
 
   useEffect(() => {
     const init = async () => {
       setLoading(true);
+      nextPageRef.current = 1;
+      setHasMore(true);
       await loadHomeData();
       setLoading(false);
     };
@@ -320,8 +380,27 @@ export default function NetflixStylePage() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    nextPageRef.current = 1;
+    setHasMore(true);
     await loadHomeData();
     setRefreshing(false);
+  };
+
+  const loadMoreFeed = async () => {
+    if (
+      loading ||
+      loadingMoreRef.current ||
+      !hasMore ||
+      mixedFeed.length === 0
+    ) {
+      return;
+    }
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    await loadHomeData(nextPageRef.current + 1, true);
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
   };
 
   const isShortContent = (item) => {
@@ -408,6 +487,7 @@ export default function NetflixStylePage() {
     data,
     emptyMsg,
     type = "recommended",
+    twoColumn = false,
   ) => (
     <View style={styles.section}>
       <SectionHeader title={title} onPress={() => handleSectionPress(type)} />
@@ -418,7 +498,14 @@ export default function NetflixStylePage() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.horizontalList}
+          decelerationRate="fast"
+          snapToInterval={twoColumn ? TWO_CARD_SNAP_INTERVAL : undefined}
+          snapToAlignment="start"
+          disableIntervalMomentum={twoColumn}
+          contentContainerStyle={[
+            styles.horizontalList,
+            twoColumn && styles.twoColumnList,
+          ]}
         >
           {data.map((item) => (
             <MovieCard
@@ -426,6 +513,7 @@ export default function NetflixStylePage() {
               item={item}
               onPress={handleItemClick}
               onAddToWatchLater={handleAddToWatchLater}
+              twoColumn={twoColumn}
             />
           ))}
         </ScrollView>
@@ -532,9 +620,59 @@ export default function NetflixStylePage() {
         }}
       />
 
-      <ScrollView
+      <FlatList
+        data={mixedFeed}
+        keyExtractor={(item, index) => `${item.id}-${index}`}
+        renderItem={renderVerticalFeedItem}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        onEndReached={loadMoreFeed}
+        onEndReachedThreshold={0.6}
+        ListHeaderComponent={
+          <View style={styles.section}>
+            <SectionHeader
+              title="Recommended for you"
+              onPress={() => handleSectionPress("recommended")}
+            />
+            {loading && mixedFeed.length === 0 && (
+              <ActivityIndicator color="#fff" style={{ marginVertical: 24 }} />
+            )}
+            {!loading && mixedFeed.length === 0 && (
+              <Text style={styles.emptyText}>
+                No recommendations available right now.
+              </Text>
+            )}
+          </View>
+        }
+        ListFooterComponent={
+          <>
+            {loadingMore && (
+              <ActivityIndicator color="#fff" style={styles.loadingMore} />
+            )}
+            {renderHorizontalSection(
+              "Trending Videos",
+              trending,
+              "No trending videos available right now.",
+              "trending",
+              true,
+            )}
+            {renderShortsGrid("Trending Shorts")}
+            {renderHorizontalSection(
+              "Latest Videos",
+              latest,
+              "No latest videos available right now.",
+              "latest",
+              true,
+            )}
+            {renderHorizontalSection(
+              "From Your Subscriptions",
+              subscriptions,
+              "Subscribe to channels to see their videos here.",
+              "subscriptions",
+            )}
+            {renderShortsGrid("Top Shorts")}
+          </>
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -543,55 +681,7 @@ export default function NetflixStylePage() {
             colors={["#fff"]}
           />
         }
-      >
-        {/* ===== YouTube-like Continuous Feed (Algorithm mixed) ===== */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Recommended for you"
-            onPress={() => handleSectionPress("recommended")}
-          />
-
-          {loading && mixedFeed.length === 0 ? (
-            <ActivityIndicator color="#fff" style={{ marginVertical: 24 }} />
-          ) : mixedFeed.length > 0 ? (
-            mixedFeed
-              .slice(0, 12)
-              .map((item) => (
-                <View key={item.id}>{renderVerticalFeedItem({ item })}</View>
-              ))
-          ) : (
-            <Text style={styles.emptyText}>
-              No recommendations available right now.
-            </Text>
-          )}
-        </View>
-
-        {/* Horizontal sections remain for discovery */}
-        {renderHorizontalSection(
-          "Trending Videos",
-          trending,
-          "No trending videos available right now.",
-          "trending",
-        )}
-
-        {renderShortsGrid("Trending Shorts")}
-
-        {renderHorizontalSection(
-          "Latest Videos",
-          latest,
-          "No latest videos available right now.",
-          "latest",
-        )}
-
-        {renderHorizontalSection(
-          "From Your Subscriptions",
-          subscriptions,
-          "Subscribe to channels to see their videos here.",
-          "subscriptions",
-        )}
-
-        {renderShortsGrid("Top Shorts")}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -626,13 +716,19 @@ const styles = StyleSheet.create({
   },
   horizontalList: {
     paddingRight: 12,
-    gap: 14,
+    gap: CARD_GAP,
+  },
+  twoColumnList: {
+    paddingRight: 16,
   },
 
   // ===== Horizontal Card (fixed title) =====
   cardWrapper: {
     width: CARD_WIDTH,
     marginRight: 4,
+  },
+  twoColumnCardWrapper: {
+    marginRight: 0,
   },
   card: {
     width: CARD_WIDTH,
@@ -700,6 +796,9 @@ const styles = StyleSheet.create({
     color: "#a1a1aa",
     fontSize: 14,
     marginTop: 8,
+  },
+  loadingMore: {
+    marginVertical: 20,
   },
 
   // ===== Shorts =====

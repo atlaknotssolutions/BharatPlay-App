@@ -1156,7 +1156,7 @@ export default function ChannelScreen({ navigation }) {
   // ================= IMAGE / VIDEO PICKER =================
   const pickImage = async (type) => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       quality: 0.8,
     });

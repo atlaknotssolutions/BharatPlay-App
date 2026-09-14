@@ -31,6 +31,12 @@
       "favicon": "./assets/Bharatplay-Cb3qGLyP-Cb3qGLyP.png"
     },
     "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Bharatplay to access your photos so you can update your profile picture."
+        }
+      ],
       "expo-web-browser",
       "expo-video",
       "react-native-video",
