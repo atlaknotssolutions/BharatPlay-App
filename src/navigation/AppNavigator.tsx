@@ -30,8 +30,8 @@ import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import AdminTabNavigator from "./AdminTabNavigator";
 import VideoDetailScreen from "../admin/VideoDetailScreen";
+import CopyrightClaimPage from "../admin/CopyrightClaimPage";
 import CopyrightScreen from "../screens/CopyrightClaimScreen";
-import CopyrightClaimScreen from "../screens/CopyrightClaimScreen";
 import { API_ORIGIN } from "../../config/api";
 const Stack = createNativeStackNavigator();
 
@@ -114,7 +114,7 @@ export default function AppNavigator() {
         <Stack.Screen name="VideoDetail" component={VideoDetailScreen} />
 
         <Stack.Screen name="Copyright" component={CopyrightScreen} />
-        <Stack.Screen name="CopyrightClaim" component={CopyrightClaimScreen} />
+        <Stack.Screen name="CopyrightClaim" component={CopyrightClaimPage} />
 
         {/* <Stack.Screen name="SubscribedChannels" component={SubscribedChannels} /> */}
       </Stack.Navigator>

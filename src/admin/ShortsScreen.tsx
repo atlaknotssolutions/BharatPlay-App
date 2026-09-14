@@ -32,7 +32,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { RouteProp, useRoute } from "@react-navigation/native";
+import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 
 import { API_ORIGIN, API_USERVIDEO } from "../../config/api";
 
@@ -353,6 +353,7 @@ function CommentAvatar({ comment }: { comment: ShortComment }) {
 ========================================================= */
 
 export default function ShortsScreen() {
+  const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<ShortsRouteParams, "Shorts">>();
 
   const selectedVideo = route?.params?.video;
@@ -670,6 +671,24 @@ export default function ShortsScreen() {
     }
   };
 
+  const handleCopyright = (item: ShortItem) => {
+    Alert.alert(
+      "Copyright",
+      "Do you want to report a copyright issue for this short?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Report copyright",
+          onPress: () =>
+            navigation.navigate("CopyrightClaim", {
+              videoId: item.id,
+              title: item.title,
+            }),
+        },
+      ],
+    );
+  };
+
   /* =======================================================
      GET CHANNEL ID
   ======================================================= */
@@ -981,7 +1000,7 @@ export default function ShortsScreen() {
 
             <TouchableOpacity
               style={styles.topIcon}
-              onPress={() => Alert.alert("More", "More options")}
+              onPress={() => handleCopyright(item)}
             >
               <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
             </TouchableOpacity>
@@ -1091,7 +1110,7 @@ export default function ShortsScreen() {
 
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={() => Alert.alert("More", "More options")}
+              onPress={() => handleCopyright(item)}
             >
               <Ionicons name="ellipsis-horizontal" size={30} color="#fff" />
             </TouchableOpacity>
