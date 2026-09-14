@@ -20,6 +20,7 @@ import {
   Alert,
   FlatList,
   Pressable,
+  Modal,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -30,7 +31,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_ORIGIN } from "../../config/api";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const BACKEND_URL = API_ORIGIN;
 const API_BASE = `${BACKEND_URL}/api/uservideo`;
 
@@ -95,6 +96,7 @@ export default function VideoDetailScreen() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [likesCount, setLikesCount] = useState(
     Number(routeVideo?.likesCount ?? routeVideo?.likes ?? 0),
@@ -125,7 +127,6 @@ export default function VideoDetailScreen() {
   const [suggestedVideos, setSuggestedVideos] = useState([]);
   const [suggestedLoading, setSuggestedLoading] = useState(false);
 
-  // Autoplay + Up Next
   const [autoplay, setAutoplay] = useState(true);
   const [upNextOverlay, setUpNextOverlay] = useState(null);
   const [countdownLeft, setCountdownLeft] = useState(null);
@@ -294,6 +295,24 @@ export default function VideoDetailScreen() {
     };
   }, []);
 
+  // Fullscreen orientation
+  useEffect(() => {
+    if (isFullscreen) {
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.LANDSCAPE,
+      ).catch(() => {});
+      StatusBar.setHidden(true);
+    } else {
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP,
+      ).catch(() => {});
+      StatusBar.setHidden(false);
+    }
+    return () => {
+      StatusBar.setHidden(false);
+    };
+  }, [isFullscreen]);
+
   // Load autoplay preference
   useEffect(() => {
     (async () => {
@@ -395,7 +414,6 @@ export default function VideoDetailScreen() {
       const token = await AsyncStorage.getItem("token");
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-      // Video details
       try {
         setLoading(true);
         const res = await fetch(`${API_BASE}/${routeId}`, { headers });
@@ -437,7 +455,6 @@ export default function VideoDetailScreen() {
         setLoading(false);
       }
 
-      // Comments
       try {
         setCommentsLoading(true);
         const res = await fetch(`${API_BASE}/${routeId}/comments`, {
@@ -451,7 +468,6 @@ export default function VideoDetailScreen() {
         setCommentsLoading(false);
       }
 
-      // Suggested / Related Videos
       try {
         setSuggestedLoading(true);
         let res = await fetch(`${API_BASE}/${routeId}/related`, { headers });
@@ -521,7 +537,7 @@ export default function VideoDetailScreen() {
     })();
   }, [currentTime, duration, routeId, viewCounted]);
 
-  // Resume from the last saved position, like YouTube.
+  // Resume from last saved position
   useEffect(() => {
     if (!player || !duration || resumeApplied.current || watchedPercent <= 0) {
       return;
@@ -535,7 +551,7 @@ export default function VideoDetailScreen() {
     resumeApplied.current = true;
   }, [player, duration, watchedPercent]);
 
-  // Save the latest position so History can resume it.
+  // Save progress
   useEffect(() => {
     if (!routeId || !duration || !currentTime) return;
     const percent = Math.min(100, Math.round((currentTime / duration) * 100));
@@ -563,50 +579,73 @@ export default function VideoDetailScreen() {
     if (!showControls) return;
     if (controlsTimer.current) clearTimeout(controlsTimer.current);
     controlsTimer.current = setTimeout(() => setShowControls(false), 3500);
-    return () => clearTimeout(controlsTimer.current);
-  }, [showControls, isPlaying]);
+    return () => {
+      if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    };
+  }, [showControls, isPlaying, isFullscreen]);
 
   const showControlsTemporarily = useCallback(() => {
     setShowControls(true);
   }, []);
 
-  const handleTogglePlayPause = () => {
+  const handleTogglePlayPause = useCallback(() => {
     if (!player) return;
     try {
       if (isPlaying) {
         player.pause();
+        setIsPlaying(false);
       } else {
         player.play();
+        setIsPlaying(true);
       }
-    } catch (e) {}
-    showControlsTemporarily();
-  };
-
-  // Double tap seek
-  const handleSideTap = (side) => {
-    const now = Date.now();
-    if (now - lastTap.current < 280 && lastTapSide.current === side) {
-      if (player && duration) {
-        const offset = side === "left" ? -10 : 10;
-        const newTime = Math.max(0, Math.min(duration, currentTime + offset));
-        player.currentTime = newTime;
-        setCurrentTime(newTime);
-      }
-    } else {
-      setShowControls((prev) => !prev);
+    } catch (e) {
+      console.warn("Play/pause error:", e);
     }
-    lastTap.current = now;
-    lastTapSide.current = side;
-  };
+    showControlsTemporarily();
+  }, [player, isPlaying, showControlsTemporarily]);
 
-  const handleSeek = (value) => {
-    if (!player || !duration) return;
-    try {
-      const seekTo = Math.max(0, Math.min(duration, value * duration));
-      player.currentTime = seekTo;
-      setCurrentTime(seekTo);
-    } catch (e) {}
-  };
+  // Double tap seek / single tap toggle controls
+  const handleSideTap = useCallback(
+    (side) => {
+      const now = Date.now();
+      if (now - lastTap.current < 280 && lastTapSide.current === side) {
+        // Double tap → seek
+        if (player && duration) {
+          const offset = side === "left" ? -10 : 10;
+          const newTime = Math.max(0, Math.min(duration, currentTime + offset));
+          try {
+            player.currentTime = newTime;
+            setCurrentTime(newTime);
+          } catch (e) {}
+        }
+        showControlsTemporarily();
+      } else {
+        // Single tap → toggle controls
+        setShowControls((prev) => !prev);
+      }
+      lastTap.current = now;
+      lastTapSide.current = side;
+    },
+    [player, duration, currentTime, showControlsTemporarily],
+  );
+
+  const handleSeek = useCallback(
+    (value) => {
+      if (!player || !duration) return;
+      try {
+        const seekTo = Math.max(0, Math.min(duration, value * duration));
+        player.currentTime = seekTo;
+        setCurrentTime(seekTo);
+      } catch (e) {}
+      showControlsTemporarily();
+    },
+    [player, duration, showControlsTemporarily],
+  );
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+    showControlsTemporarily();
+  }, [showControlsTemporarily]);
 
   // ==================== ACTIONS ====================
   const handleLike = async () => {
@@ -795,6 +834,7 @@ export default function VideoDetailScreen() {
 
   const openSuggestedVideo = (item) => {
     cancelCountdown();
+    setIsFullscreen(false);
     const id = item._id || item.id;
     navigation.replace("VideoDetail", {
       id,
@@ -808,13 +848,222 @@ export default function VideoDetailScreen() {
     if (player) {
       player.currentTime = 0;
       player.play();
+      setIsPlaying(true);
     }
     cancelCountdown();
   };
 
   const progress = duration > 0 ? Math.min(currentTime / duration, 1) : 0;
 
-  // ==================== RENDER ====================
+  // ==================== SHARED PLAYER UI ====================
+  const renderPlayerControls = (fullscreenMode = false) => (
+    <>
+      {/* Left / Right double-tap zones */}
+      <View style={styles.tapZones} pointerEvents="box-none">
+        <Pressable
+          style={styles.tapZone}
+          onPress={() => handleSideTap("left")}
+        />
+        <Pressable
+          style={styles.tapZone}
+          onPress={() => handleSideTap("right")}
+        />
+      </View>
+
+      {/* UP NEXT OVERLAY */}
+      {upNextOverlay && (
+        <View style={styles.upNextOverlay}>
+          <View style={styles.upNextCard}>
+            {countdownLeft !== null && (
+              <View style={styles.countdownRow}>
+                <Ionicons name="play-skip-forward" size={16} color="#fff" />
+                <Text style={styles.countdownText}>
+                  Up next in {countdownLeft}s
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.upNextBody}>
+              <Image
+                source={{
+                  uri:
+                    resolveMediaUrl(
+                      upNextOverlay.thumbnail ||
+                        upNextOverlay.thumb ||
+                        upNextOverlay.poster,
+                    ) || FALLBACK_VIDEO.thumbnail,
+                }}
+                style={styles.upNextThumb}
+              />
+              <View style={styles.upNextMeta}>
+                <Text style={styles.upNextTitle} numberOfLines={2}>
+                  {upNextOverlay.title || "Next Video"}
+                </Text>
+                <Text style={styles.upNextChannel} numberOfLines={1}>
+                  {upNextOverlay.channel?.name ||
+                    upNextOverlay.channel ||
+                    "Channel"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.upNextActions}>
+              <TouchableOpacity style={styles.upNextBtn} onPress={handleReplay}>
+                <Ionicons name="refresh" size={16} color="#fff" />
+                <Text style={styles.upNextBtnText}>Replay</Text>
+              </TouchableOpacity>
+
+              {countdownLeft !== null ? (
+                <TouchableOpacity
+                  style={styles.upNextBtn}
+                  onPress={cancelCountdown}
+                >
+                  <Ionicons name="close" size={16} color="#fff" />
+                  <Text style={styles.upNextBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.upNextBtn, styles.upNextBtnPrimary]}
+                  onPress={() => openSuggestedVideo(upNextOverlay)}
+                >
+                  <Ionicons name="play-skip-forward" size={16} color="#000" />
+                  <Text style={[styles.upNextBtnText, { color: "#000" }]}>
+                    Play Next
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* CONTROLS OVERLAY - YouTube style */}
+      {showControls && !upNextOverlay && (
+        <View style={styles.playerControls} pointerEvents="box-none">
+          {/* Top bar */}
+          <View
+            style={[
+              styles.topBar,
+              fullscreenMode && { paddingTop: Platform.OS === "ios" ? 20 : 12 },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => {
+                if (fullscreenMode) {
+                  setIsFullscreen(false);
+                } else {
+                  navigation.goBack();
+                }
+              }}
+            >
+              <Ionicons
+                name={fullscreenMode ? "chevron-down" : "arrow-back"}
+                size={22}
+                color="#fff"
+              />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1 }} />
+
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => setIsMuted((p) => !p)}
+            >
+              <Ionicons
+                name={isMuted ? "volume-mute" : "volume-high"}
+                size={22}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Center controls: rewind | play/pause | forward */}
+          <View style={styles.centerControls}>
+            <TouchableOpacity
+              style={styles.centerSideBtn}
+              onPress={() => {
+                if (player && duration) {
+                  const newTime = Math.max(0, currentTime - 10);
+                  player.currentTime = newTime;
+                  setCurrentTime(newTime);
+                  showControlsTemporarily();
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-back" size={28} color="#fff" />
+              <Text style={styles.seekLabel}>10</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.centerPlay}
+              onPress={handleTogglePlayPause}
+              activeOpacity={0.85}
+            >
+              <View style={styles.playCircle}>
+                <Ionicons
+                  name={isPlaying ? "pause" : "play"}
+                  size={40}
+                  color="#fff"
+                  style={!isPlaying ? { marginLeft: 4 } : undefined}
+                />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.centerSideBtn}
+              onPress={() => {
+                if (player && duration) {
+                  const newTime = Math.min(duration, currentTime + 10);
+                  player.currentTime = newTime;
+                  setCurrentTime(newTime);
+                  showControlsTemporarily();
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-forward" size={28} color="#fff" />
+              <Text style={styles.seekLabel}>10</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom: time + slider + fullscreen */}
+          <View style={styles.bottomControls}>
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </Text>
+              <TouchableOpacity
+                style={styles.fullscreenBtn}
+                onPress={toggleFullscreen}
+              >
+                <Ionicons
+                  name={fullscreenMode ? "contract" : "expand"}
+                  size={22}
+                  color="#fff"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={1}
+              value={progress}
+              onSlidingComplete={handleSeek}
+              onValueChange={() => showControlsTemporarily()}
+              minimumTrackTintColor="#ff0000"
+              maximumTrackTintColor="rgba(255,255,255,0.35)"
+              thumbTintColor="#ff0000"
+            />
+          </View>
+        </View>
+      )}
+    </>
+  );
+
+  // ==================== RENDER SUGGESTED ====================
   const renderSuggestedItem = ({ item }) => {
     const thumb =
       resolveMediaUrl(item.thumbnail || item.thumb || item.poster) ||
@@ -842,387 +1091,275 @@ export default function VideoDetailScreen() {
     );
   };
 
+  // ==================== MAIN RENDER ====================
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f0f0f" />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#0f0f0f"
+        hidden={isFullscreen}
+      />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        nestedScrollEnabled
+      {/* ===== NORMAL (portrait) PLAYER ===== */}
+      {!isFullscreen && (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          nestedScrollEnabled
+        >
+          <View style={styles.videoWrapper}>
+            <VideoView
+              player={player}
+              style={styles.videoPlayer}
+              contentFit="contain"
+              nativeControls={false}
+              allowsPictureInPicture={false}
+            />
+            {renderPlayerControls(false)}
+          </View>
+
+          {/* INFO */}
+          <View style={styles.infoSection}>
+            <Text style={styles.title} numberOfLines={2}>
+              {videoDetails?.title || FALLBACK_VIDEO.title}
+            </Text>
+
+            <Text style={styles.meta}>
+              {formatCount(videoDetails?.views || 0)} views
+              {videoDetails?.createdAt
+                ? `  •  ${new Date(videoDetails.createdAt).toLocaleDateString()}`
+                : ""}
+            </Text>
+
+            <View style={styles.channelRow}>
+              <Image
+                source={{
+                  uri:
+                    resolveMediaUrl(videoDetails?.channel?.channelImage) ||
+                    resolvedThumbnail,
+                }}
+                style={styles.channelAvatar}
+              />
+              <View style={styles.channelInfo}>
+                <Text style={styles.channelName} numberOfLines={1}>
+                  {videoDetails?.channel?.name ||
+                    videoDetails?.channel ||
+                    "Channel"}
+                </Text>
+                <Text style={styles.subscribersText}>
+                  {formatCount(subscribersCount)} subscribers
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.subscribeBtn,
+                  isSubscribed && styles.subscribedBtn,
+                ]}
+                onPress={handleSubscribe}
+                disabled={subscribeLoading}
+              >
+                {subscribeLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={isSubscribed ? "#fff" : "#0f0f0f"}
+                  />
+                ) : (
+                  <Text
+                    style={[
+                      styles.subscribeText,
+                      isSubscribed && styles.subscribedText,
+                    ]}
+                  >
+                    {isSubscribed ? "Subscribed" : "Subscribe"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.actionRow}
+            >
+              <TouchableOpacity
+                style={[styles.actionBtn, liked && styles.actionBtnActive]}
+                onPress={handleLike}
+              >
+                <Ionicons
+                  name={liked ? "thumbs-up" : "thumbs-up-outline"}
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={styles.actionText}>{formatCount(likesCount)}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, disliked && styles.actionBtnActive]}
+                onPress={handleDislike}
+              >
+                <Ionicons
+                  name={disliked ? "thumbs-down" : "thumbs-down-outline"}
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={styles.actionText}>
+                  {formatCount(dislikesCount)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.actionBtn,
+                  isWatchLater && styles.actionBtnActive,
+                ]}
+                onPress={handleWatchLater}
+                disabled={watchLaterLoading}
+              >
+                {watchLaterLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons
+                    name={isWatchLater ? "bookmark" : "bookmark-outline"}
+                    size={18}
+                    color="#fff"
+                  />
+                )}
+                <Text style={styles.actionText}>
+                  {isWatchLater ? "Saved" : "Save"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionBtn}>
+                <Ionicons name="share-outline" size={18} color="#fff" />
+                <Text style={styles.actionText}>Share</Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <View style={styles.descriptionBox}>
+              <Text style={styles.description} numberOfLines={3}>
+                {videoDetails?.description || FALLBACK_VIDEO.description}
+              </Text>
+            </View>
+          </View>
+
+          {/* UP NEXT */}
+          <View style={styles.suggestedSection}>
+            <View style={styles.suggestedHeader}>
+              <Text style={styles.sectionTitle}>Up next</Text>
+              <View style={styles.autoplayRow}>
+                <Text style={styles.autoplayLabel}>Autoplay</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.switch,
+                    autoplay ? styles.switchOn : styles.switchOff,
+                  ]}
+                  onPress={() => setAutoplay((p) => !p)}
+                >
+                  <View
+                    style={[
+                      styles.switchThumb,
+                      autoplay && styles.switchThumbOn,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {suggestedLoading ? (
+              <ActivityIndicator color="#fff" style={{ marginVertical: 24 }} />
+            ) : suggestedVideos.length > 0 ? (
+              <FlatList
+                data={suggestedVideos}
+                keyExtractor={(item) => String(item._id || item.id)}
+                renderItem={renderSuggestedItem}
+                scrollEnabled={false}
+                ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+              />
+            ) : (
+              <Text style={styles.emptyText}>No suggestions available</Text>
+            )}
+          </View>
+
+          {/* COMMENTS */}
+          <View style={styles.commentsCard}>
+            <Text style={styles.sectionTitle}>
+              Comments • {comments.length}
+            </Text>
+
+            <View style={styles.commentInputRow}>
+              <TextInput
+                value={commentText}
+                onChangeText={setCommentText}
+                style={styles.commentInput}
+                placeholder="Add a comment..."
+                placeholderTextColor="#888"
+                multiline
+              />
+              <TouchableOpacity
+                style={[
+                  styles.postBtn,
+                  (!commentText.trim() || commentLoading) && { opacity: 0.5 },
+                ]}
+                onPress={handleCommentSubmit}
+                disabled={!commentText.trim() || commentLoading}
+              >
+                {commentLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.postBtnText}>Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {commentsLoading ? (
+              <ActivityIndicator color="#fff" style={{ marginVertical: 14 }} />
+            ) : comments.length > 0 ? (
+              comments.map((c) => (
+                <View key={c._id || c.id} style={styles.commentItem}>
+                  <Text style={styles.commentText}>{c.text || c.comment}</Text>
+                  <Text style={styles.commentMeta}>
+                    {c.createdAt
+                      ? new Date(c.createdAt).toLocaleDateString()
+                      : "Just now"}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No comments yet.</Text>
+            )}
+          </View>
+
+          {loading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* ===== FULLSCREEN PLAYER (Modal) ===== */}
+      <Modal
+        visible={isFullscreen}
+        animationType="fade"
+        supportedOrientations={[
+          "landscape",
+          "landscape-left",
+          "landscape-right",
+        ]}
+        onRequestClose={() => setIsFullscreen(false)}
       >
-        {/* ================= VIDEO PLAYER ================= */}
-        <View style={styles.videoWrapper}>
+        <View style={styles.fullscreenContainer}>
           <VideoView
             player={player}
-            style={styles.videoPlayer}
+            style={styles.fullscreenVideo}
             contentFit="contain"
             nativeControls={false}
             allowsPictureInPicture={false}
           />
-
-          {/* Left / Right double-tap zones */}
-          <View style={styles.tapZones} pointerEvents="box-none">
-            <Pressable
-              style={styles.tapZone}
-              onPress={() => handleSideTap("left")}
-            />
-            <Pressable
-              style={styles.tapZone}
-              onPress={() => handleSideTap("right")}
-            />
-          </View>
-
-          {/* ========== UP NEXT OVERLAY ========== */}
-          {upNextOverlay && (
-            <View style={styles.upNextOverlay}>
-              <View style={styles.upNextCard}>
-                {countdownLeft !== null && (
-                  <View style={styles.countdownRow}>
-                    <Ionicons name="play-skip-forward" size={16} color="#fff" />
-                    <Text style={styles.countdownText}>
-                      Up next in {countdownLeft}s
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.upNextBody}>
-                  <Image
-                    source={{
-                      uri:
-                        resolveMediaUrl(
-                          upNextOverlay.thumbnail ||
-                            upNextOverlay.thumb ||
-                            upNextOverlay.poster,
-                        ) || FALLBACK_VIDEO.thumbnail,
-                    }}
-                    style={styles.upNextThumb}
-                  />
-                  <View style={styles.upNextMeta}>
-                    <Text style={styles.upNextTitle} numberOfLines={2}>
-                      {upNextOverlay.title || "Next Video"}
-                    </Text>
-                    <Text style={styles.upNextChannel} numberOfLines={1}>
-                      {upNextOverlay.channel?.name ||
-                        upNextOverlay.channel ||
-                        "Channel"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.upNextActions}>
-                  <TouchableOpacity
-                    style={styles.upNextBtn}
-                    onPress={handleReplay}
-                  >
-                    <Ionicons name="refresh" size={16} color="#fff" />
-                    <Text style={styles.upNextBtnText}>Replay</Text>
-                  </TouchableOpacity>
-
-                  {countdownLeft !== null ? (
-                    <TouchableOpacity
-                      style={styles.upNextBtn}
-                      onPress={cancelCountdown}
-                    >
-                      <Ionicons name="close" size={16} color="#fff" />
-                      <Text style={styles.upNextBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.upNextBtn, styles.upNextBtnPrimary]}
-                      onPress={() => openSuggestedVideo(upNextOverlay)}
-                    >
-                      <Ionicons
-                        name="play-skip-forward"
-                        size={16}
-                        color="#000"
-                      />
-                      <Text style={[styles.upNextBtnText, { color: "#000" }]}>
-                        Play Next
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* ========== CONTROLS OVERLAY (YouTube style) ========== */}
-          {showControls && !upNextOverlay && (
-            <View style={styles.playerControls} pointerEvents="box-none">
-              {/* Top bar */}
-              <View style={styles.topBar}>
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => navigation.goBack()}
-                >
-                  <Ionicons name="arrow-back" size={22} color="#fff" />
-                </TouchableOpacity>
-
-                <View style={{ flex: 1 }} />
-
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => setIsMuted((p) => !p)}
-                >
-                  <Ionicons
-                    name={isMuted ? "volume-mute" : "volume-high"}
-                    size={22}
-                    color="#fff"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {/* Center Play/Pause */}
-              <TouchableOpacity
-                style={styles.centerPlay}
-                onPress={handleTogglePlayPause}
-                activeOpacity={0.85}
-              >
-                <View style={styles.playCircle}>
-                  <Ionicons
-                    name={isPlaying ? "pause" : "play"}
-                    size={36}
-                    color="#fff"
-                  />
-                </View>
-              </TouchableOpacity>
-
-              {/* Bottom progress + time (YouTube style) */}
-              <View style={styles.bottomControls}>
-                <Text style={styles.timeText}>
-                  {formatTime(currentTime)} / {formatTime(duration)}
-                </Text>
-
-                <Slider
-                  style={styles.slider}
-                  minimumValue={0}
-                  maximumValue={1}
-                  value={progress}
-                  onSlidingComplete={handleSeek}
-                  minimumTrackTintColor="#ff0000"
-                  maximumTrackTintColor="rgba(255,255,255,0.3)"
-                  thumbTintColor="#ff0000"
-                />
-              </View>
-            </View>
-          )}
+          {renderPlayerControls(true)}
         </View>
-
-        {/* ================= INFO (YouTube style) ================= */}
-        <View style={styles.infoSection}>
-          <Text style={styles.title} numberOfLines={2}>
-            {videoDetails?.title || FALLBACK_VIDEO.title}
-          </Text>
-
-          <Text style={styles.meta}>
-            {formatCount(videoDetails?.views || 0)} views
-            {videoDetails?.createdAt
-              ? `  •  ${new Date(videoDetails.createdAt).toLocaleDateString()}`
-              : ""}
-          </Text>
-
-          {/* Channel row */}
-          <View style={styles.channelRow}>
-            <Image
-              source={{
-                uri:
-                  resolveMediaUrl(videoDetails?.channel?.channelImage) ||
-                  resolvedThumbnail,
-              }}
-              style={styles.channelAvatar}
-            />
-            <View style={styles.channelInfo}>
-              <Text style={styles.channelName} numberOfLines={1}>
-                {videoDetails?.channel?.name ||
-                  videoDetails?.channel ||
-                  "Channel"}
-              </Text>
-              <Text style={styles.subscribersText}>
-                {formatCount(subscribersCount)} subscribers
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.subscribeBtn,
-                isSubscribed && styles.subscribedBtn,
-              ]}
-              onPress={handleSubscribe}
-              disabled={subscribeLoading}
-            >
-              {subscribeLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={isSubscribed ? "#fff" : "#0f0f0f"}
-                />
-              ) : (
-                <Text
-                  style={[
-                    styles.subscribeText,
-                    isSubscribed && styles.subscribedText,
-                  ]}
-                >
-                  {isSubscribed ? "Subscribed" : "Subscribe"}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* Action buttons (YouTube style pills) */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.actionRow}
-          >
-            <TouchableOpacity
-              style={[styles.actionBtn, liked && styles.actionBtnActive]}
-              onPress={handleLike}
-            >
-              <Ionicons
-                name={liked ? "thumbs-up" : "thumbs-up-outline"}
-                size={18}
-                color="#fff"
-              />
-              <Text style={styles.actionText}>{formatCount(likesCount)}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionBtn, disliked && styles.actionBtnActive]}
-              onPress={handleDislike}
-            >
-              <Ionicons
-                name={disliked ? "thumbs-down" : "thumbs-down-outline"}
-                size={18}
-                color="#fff"
-              />
-              <Text style={styles.actionText}>
-                {formatCount(dislikesCount)}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionBtn, isWatchLater && styles.actionBtnActive]}
-              onPress={handleWatchLater}
-              disabled={watchLaterLoading}
-            >
-              {watchLaterLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons
-                  name={isWatchLater ? "bookmark" : "bookmark-outline"}
-                  size={18}
-                  color="#fff"
-                />
-              )}
-              <Text style={styles.actionText}>
-                {isWatchLater ? "Saved" : "Save"}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn}>
-              <Ionicons name="share-outline" size={18} color="#fff" />
-              <Text style={styles.actionText}>Share</Text>
-            </TouchableOpacity>
-          </ScrollView>
-
-          {/* Description */}
-          <View style={styles.descriptionBox}>
-            <Text style={styles.description} numberOfLines={3}>
-              {videoDetails?.description || FALLBACK_VIDEO.description}
-            </Text>
-          </View>
-        </View>
-
-        {/* ================= UP NEXT (YouTube mobile style - vertical) ================= */}
-        <View style={styles.suggestedSection}>
-          <View style={styles.suggestedHeader}>
-            <Text style={styles.sectionTitle}>Up next</Text>
-
-            <View style={styles.autoplayRow}>
-              <Text style={styles.autoplayLabel}>Autoplay</Text>
-              <TouchableOpacity
-                style={[
-                  styles.switch,
-                  autoplay ? styles.switchOn : styles.switchOff,
-                ]}
-                onPress={() => setAutoplay((p) => !p)}
-              >
-                <View
-                  style={[styles.switchThumb, autoplay && styles.switchThumbOn]}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {suggestedLoading ? (
-            <ActivityIndicator color="#fff" style={{ marginVertical: 24 }} />
-          ) : suggestedVideos.length > 0 ? (
-            <FlatList
-              data={suggestedVideos}
-              keyExtractor={(item) => String(item._id || item.id)}
-              renderItem={renderSuggestedItem}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-            />
-          ) : (
-            <Text style={styles.emptyText}>No suggestions available</Text>
-          )}
-        </View>
-
-        {/* ================= COMMENTS ================= */}
-        <View style={styles.commentsCard}>
-          <Text style={styles.sectionTitle}>Comments • {comments.length}</Text>
-
-          <View style={styles.commentInputRow}>
-            <TextInput
-              value={commentText}
-              onChangeText={setCommentText}
-              style={styles.commentInput}
-              placeholder="Add a comment..."
-              placeholderTextColor="#888"
-              multiline
-            />
-            <TouchableOpacity
-              style={[
-                styles.postBtn,
-                (!commentText.trim() || commentLoading) && { opacity: 0.5 },
-              ]}
-              onPress={handleCommentSubmit}
-              disabled={!commentText.trim() || commentLoading}
-            >
-              {commentLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.postBtnText}>Post</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {commentsLoading ? (
-            <ActivityIndicator color="#fff" style={{ marginVertical: 14 }} />
-          ) : comments.length > 0 ? (
-            comments.map((c) => (
-              <View key={c._id || c.id} style={styles.commentItem}>
-                <Text style={styles.commentText}>{c.text || c.comment}</Text>
-                <Text style={styles.commentMeta}>
-                  {c.createdAt
-                    ? new Date(c.createdAt).toLocaleDateString()
-                    : "Just now"}
-                </Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>No comments yet.</Text>
-          )}
-        </View>
-
-        {loading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator color="#fff" />
-          </View>
-        )}
-      </ScrollView>
+      </Modal>
     </View>
   );
 }
@@ -1246,6 +1383,15 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: "center",
+  },
+  fullscreenVideo: {
+    width: "100%",
+    height: "100%",
+  },
   tapZones: {
     ...StyleSheet.absoluteFillObject,
     flexDirection: "row",
@@ -1255,7 +1401,7 @@ const styles = StyleSheet.create({
   },
   playerControls: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "space-between",
   },
   topBar: {
@@ -1265,32 +1411,61 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 48 : 16,
   },
   iconBtn: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+  },
+  centerControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 36,
+  },
+  centerSideBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 56,
+    height: 56,
+  },
+  seekLabel: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: -2,
   },
   centerPlay: {
     alignSelf: "center",
   },
   playCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.25)",
   },
   bottomControls: {
     paddingHorizontal: 12,
-    paddingBottom: 10,
+    paddingBottom: Platform.OS === "ios" ? 16 : 12,
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
   },
   timeText: {
     color: "#fff",
     fontSize: 12,
-    marginBottom: 2,
+    fontWeight: "500",
+  },
+  fullscreenBtn: {
+    padding: 6,
   },
   slider: {
     width: "100%",
@@ -1466,7 +1641,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ========== SUGGESTED (vertical like YouTube mobile) ==========
+  // ========== SUGGESTED ==========
   suggestedSection: {
     marginTop: 8,
     paddingHorizontal: 12,

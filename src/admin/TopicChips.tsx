@@ -28,7 +28,7 @@ export default function TopicChips({ onTopicChange }) {
           const hasForYou = data.some((item) => item.name === "For you");
           if (!hasForYou) {
             setSelectedTopic(data[0].name);
-            onTopicChange?.(data[0].name);
+            onTopicChange?.(data[0].name, data[0]._id || data[0].id);
           }
         }
       } catch (err) {
@@ -50,8 +50,8 @@ export default function TopicChips({ onTopicChange }) {
   }, []);
 
   const handleTopicClick = (topic) => {
-    setSelectedTopic(topic);
-    onTopicChange?.(topic);
+    setSelectedTopic(topic.name);
+    onTopicChange?.(topic.name, topic._id || topic.id);
   };
 
   if (loading) {
@@ -73,8 +73,8 @@ export default function TopicChips({ onTopicChange }) {
           const isActive = selectedTopic === topic.name;
           return (
             <TouchableOpacity
-              key={topic._id}
-              onPress={() => handleTopicClick(topic.name)}
+              key={topic._id || topic.id || topic.name}
+              onPress={() => handleTopicClick(topic)}
               style={[styles.chip, isActive && styles.chipActive]}
               activeOpacity={0.8}
             >
