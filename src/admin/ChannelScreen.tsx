@@ -24,12 +24,16 @@ import {
   Play,
   Users,
   Search,
+  Home,
+  User,
 } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { API_ORIGIN } from "../../config/api";
-
+import Navbar from "./Navbar";
+import { useRoute } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 const { width } = Dimensions.get("window");
 
 const API_BASE = `${API_ORIGIN}/api`;
@@ -48,6 +52,8 @@ const STATIC_CATEGORIES = [
 ];
 
 export default function ChannelScreen({ navigation }) {
+  const route = useRoute();
+  const insets = useSafeAreaInsets();
   const [channels, setChannels] = useState([]);
   const [selectedChannelId, setSelectedChannelId] = useState(null);
   const [channel, setChannel] = useState(null);
@@ -55,19 +61,19 @@ export default function ChannelScreen({ navigation }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("Videos");
-const [videoType, setVideoType] = useState("short"); // short or long
+  const [videoType, setVideoType] = useState("short"); // short or long
   // Create Channel Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
-const [newChannel, setNewChannel] = useState({
-  name: "",
-  channelDescription: "",
-  category: "",
-  channelImageUri: null,
-  channelBannerUri: null,
-  channelImageAsset: null,   // ← add this
-  channelBannerAsset: null,  // ← add this
-  contactemail: "",
-});
+  const [newChannel, setNewChannel] = useState({
+    name: "",
+    channelDescription: "",
+    category: "",
+    channelImageUri: null,
+    channelBannerUri: null,
+    channelImageAsset: null, // ← add this
+    channelBannerAsset: null, // ← add this
+    contactemail: "",
+  });
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -175,34 +181,34 @@ const [newChannel, setNewChannel] = useState({
 
   // ================= IMAGE / VIDEO PICKER =================
   // ================= IMAGE / VIDEO PICKER =================
-const pickImage = async (type) => {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ["images"],
-    allowsEditing: true,
-    quality: 0.8,
-  });
+  const pickImage = async (type) => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      quality: 0.8,
+    });
 
-  if (!result.canceled && result.assets?.[0]) {
-    const asset = result.assets[0];
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
 
-    if (type === "avatar") {
-      setNewChannel((prev) => ({
-        ...prev,
-        channelImageUri: asset.uri,
-        channelImageAsset: asset, // full asset save kar rahe hain
-      }));
-    } else if (type === "banner") {
-      setNewChannel((prev) => ({
-        ...prev,
-        channelBannerUri: asset.uri,
-        channelBannerAsset: asset,
-      }));
-    } else if (type === "thumbnail") {
-      setThumbnailUri(asset.uri);
-      // thumbnail ke liye bhi asset rakh sakte ho agar chahiye
+      if (type === "avatar") {
+        setNewChannel((prev) => ({
+          ...prev,
+          channelImageUri: asset.uri,
+          channelImageAsset: asset, // full asset save kar rahe hain
+        }));
+      } else if (type === "banner") {
+        setNewChannel((prev) => ({
+          ...prev,
+          channelBannerUri: asset.uri,
+          channelBannerAsset: asset,
+        }));
+      } else if (type === "thumbnail") {
+        setThumbnailUri(asset.uri);
+        // thumbnail ke liye bhi asset rakh sakte ho agar chahiye
+      }
     }
-  }
-};
+  };
 
   const pickVideo = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -216,229 +222,232 @@ const pickImage = async (type) => {
   };
 
   // ================= CREATE CHANNEL =================
- const handleCreateChannel = async () => {
-  const token = await getToken();
-  if (!token) {
-    setCreateError("Please login first");
-    return;
-  }
-  if (!newChannel.name.trim()) {
-    setCreateError("Channel name is required");
-    return;
-  }
-  if (!newChannel.category) {
-    setCreateError("Please select a category");
-    return;
-  }
-
-  try {
-    setCreating(true);
-    setCreateError("");
-
-    const formData = new FormData();
-
-    formData.append("name", newChannel.name.trim());
-    formData.append("channeldescription", newChannel.channelDescription || "");
-    formData.append("category", newChannel.category);
-    formData.append("contactemail", newChannel.contactemail || "");
-
-    // Avatar
-    if (newChannel.channelImageAsset) {
-      const asset = newChannel.channelImageAsset;
-      formData.append("channelImage", {
-        uri: asset.uri,
-        type: asset.mimeType || "image/jpeg",
-        name: asset.fileName || `avatar_${Date.now()}.jpg`,
-      });
+  const handleCreateChannel = async () => {
+    const token = await getToken();
+    if (!token) {
+      setCreateError("Please login first");
+      return;
+    }
+    if (!newChannel.name.trim()) {
+      setCreateError("Channel name is required");
+      return;
+    }
+    if (!newChannel.category) {
+      setCreateError("Please select a category");
+      return;
     }
 
-    // Banner
-    if (newChannel.channelBannerAsset) {
-      const asset = newChannel.channelBannerAsset;
-      formData.append("channelBanner", {
-        uri: asset.uri,
-        type: asset.mimeType || "image/jpeg",
-        name: asset.fileName || `banner_${Date.now()}.jpg`,
-      });
-    }
+    try {
+      setCreating(true);
+      setCreateError("");
 
-    console.log("Sending with XMLHttpRequest...");
+      const formData = new FormData();
 
-    // ========== XMLHttpRequest (yeh important hai) ==========
-    const result = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+      formData.append("name", newChannel.name.trim());
+      formData.append(
+        "channeldescription",
+        newChannel.channelDescription || "",
+      );
+      formData.append("category", newChannel.category);
+      formData.append("contactemail", newChannel.contactemail || "");
 
-      xhr.open("POST", `${API_BASE}/uservideo/createchannel`);
-      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      // Content-Type mat set karo
+      // Avatar
+      if (newChannel.channelImageAsset) {
+        const asset = newChannel.channelImageAsset;
+        formData.append("channelImage", {
+          uri: asset.uri,
+          type: asset.mimeType || "image/jpeg",
+          name: asset.fileName || `avatar_${Date.now()}.jpg`,
+        });
+      }
 
-      xhr.onload = () => {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(response);
-          } else {
-            reject(new Error(response.message || `Error ${xhr.status}`));
+      // Banner
+      if (newChannel.channelBannerAsset) {
+        const asset = newChannel.channelBannerAsset;
+        formData.append("channelBanner", {
+          uri: asset.uri,
+          type: asset.mimeType || "image/jpeg",
+          name: asset.fileName || `banner_${Date.now()}.jpg`,
+        });
+      }
+
+      console.log("Sending with XMLHttpRequest...");
+
+      // ========== XMLHttpRequest (yeh important hai) ==========
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.open("POST", `${API_BASE}/uservideo/createchannel`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        // Content-Type mat set karo
+
+        xhr.onload = () => {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(response);
+            } else {
+              reject(new Error(response.message || `Error ${xhr.status}`));
+            }
+          } catch (e) {
+            reject(new Error("Invalid server response"));
           }
-        } catch (e) {
-          reject(new Error("Invalid server response"));
-        }
-      };
+        };
 
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.ontimeout = () => reject(new Error("Request timeout"));
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.ontimeout = () => reject(new Error("Request timeout"));
 
-      xhr.send(formData);
-    });
+        xhr.send(formData);
+      });
 
-    console.log("Create success →", result);
+      console.log("Create success →", result);
 
-    // Refresh channels
-    const channelsRes = await fetch(`${API_BASE}/uservideo/channel`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+      // Refresh channels
+      const channelsRes = await fetch(`${API_BASE}/uservideo/channel`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    if (channelsRes.ok) {
-      const data = await channelsRes.json();
-      const updated = data.channels || [];
-      setChannels(updated);
-      setSelectedChannelId(result.channel._id);
-      setChannel(result.channel);
+      if (channelsRes.ok) {
+        const data = await channelsRes.json();
+        const updated = data.channels || [];
+        setChannels(updated);
+        setSelectedChannelId(result.channel._id);
+        setChannel(result.channel);
+      }
+
+      // Reset form
+      setNewChannel({
+        name: "",
+        channelDescription: "",
+        category: "",
+        channelImageUri: null,
+        channelBannerUri: null,
+        channelImageAsset: null,
+        channelBannerAsset: null,
+        contactemail: "",
+      });
+      setShowCreateModal(false);
+
+      setSelectedUploadChannelId(result.channel._id);
+      setShowUploadModal(true);
+
+      Alert.alert("Success", "Channel created successfully!");
+    } catch (error) {
+      console.log("Create channel error →", error);
+      setCreateError(error.message || "Failed to create channel");
+    } finally {
+      setCreating(false);
     }
-
-    // Reset form
-    setNewChannel({
-      name: "",
-      channelDescription: "",
-      category: "",
-      channelImageUri: null,
-      channelBannerUri: null,
-      channelImageAsset: null,
-      channelBannerAsset: null,
-      contactemail: "",
-    });
-    setShowCreateModal(false);
-
-    setSelectedUploadChannelId(result.channel._id);
-    setShowUploadModal(true);
-
-    Alert.alert("Success", "Channel created successfully!");
-  } catch (error) {
-    console.log("Create channel error →", error);
-    setCreateError(error.message || "Failed to create channel");
-  } finally {
-    setCreating(false);
-  }
-};
+  };
 
   // ================= UPLOAD VIDEO =================
   const handleUploadVideo = async () => {
-  const token = await getToken();
-  if (!token) {
-    setUploadError("Please login first");
-    return;
-  }
-  if (!selectedUploadChannelId) {
-    setUploadError("Please select a channel");
-    return;
-  }
-  if (!videoUri) {
-    setUploadError("Please select a video file");
-    return;
-  }
-  if (!videoName.trim()) {
-    setUploadError("Please enter a video title");
-    return;
-  }
-  if (!videoCategory) {
-    setUploadError("Please select a category");
-    return;
-  }
-  if (!agreeTerms) {
-    setUploadError("Please agree to the terms");
-    return;
-  }
+    const token = await getToken();
+    if (!token) {
+      setUploadError("Please login first");
+      return;
+    }
+    if (!selectedUploadChannelId) {
+      setUploadError("Please select a channel");
+      return;
+    }
+    if (!videoUri) {
+      setUploadError("Please select a video file");
+      return;
+    }
+    if (!videoName.trim()) {
+      setUploadError("Please enter a video title");
+      return;
+    }
+    if (!videoCategory) {
+      setUploadError("Please select a category");
+      return;
+    }
+    if (!agreeTerms) {
+      setUploadError("Please agree to the terms");
+      return;
+    }
 
-  try {
-    setUploading(true);
-    setUploadError("");
+    try {
+      setUploading(true);
+      setUploadError("");
 
-    const formData = new FormData();
-    formData.append("name", videoName.trim());
-    formData.append("description", videoDescription || "");
-    formData.append("category", videoCategory);
-    formData.append("videoType", videoType); // ← Web jaisa important field
+      const formData = new FormData();
+      formData.append("name", videoName.trim());
+      formData.append("description", videoDescription || "");
+      formData.append("category", videoCategory);
+      formData.append("videoType", videoType); // ← Web jaisa important field
 
-    // Video file
-    formData.append("video", {
-      uri: videoUri,
-      type: "video/mp4",
-      name: `video_${Date.now()}.mp4`,
-    });
-
-    // Thumbnail (optional)
-    if (thumbnailUri) {
-      formData.append("thumbnail", {
-        uri: thumbnailUri,
-        type: "image/jpeg",
-        name: `thumbnail_${Date.now()}.jpg`,
+      // Video file
+      formData.append("video", {
+        uri: videoUri,
+        type: "video/mp4",
+        name: `video_${Date.now()}.mp4`,
       });
-    }
 
-    // ========== XMLHttpRequest (same as create channel) ==========
-    const result = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open(
-        "POST",
-        `${API_BASE}/uservideo/upload/${selectedUploadChannelId}`
-      );
-      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      // Thumbnail (optional)
+      if (thumbnailUri) {
+        formData.append("thumbnail", {
+          uri: thumbnailUri,
+          type: "image/jpeg",
+          name: `thumbnail_${Date.now()}.jpg`,
+        });
+      }
 
-      xhr.onload = () => {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(response);
-          } else {
-            reject(new Error(response.message || `Error ${xhr.status}`));
+      // ========== XMLHttpRequest (same as create channel) ==========
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(
+          "POST",
+          `${API_BASE}/uservideo/upload/${selectedUploadChannelId}`,
+        );
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+        xhr.onload = () => {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(response);
+            } else {
+              reject(new Error(response.message || `Error ${xhr.status}`));
+            }
+          } catch (e) {
+            reject(new Error("Invalid server response"));
           }
-        } catch (e) {
-          reject(new Error("Invalid server response"));
-        }
-      };
+        };
 
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.send(formData);
-    });
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.send(formData);
+      });
 
-    Alert.alert("Success", "Video uploaded successfully!");
+      Alert.alert("Success", "Video uploaded successfully!");
 
-    // Refresh videos
-    const videosRes = await fetch(
-      `${API_BASE}/uservideo/channel/${selectedChannelId}/videos`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (videosRes.ok) {
-      const data = await videosRes.json();
-      setVideos(data.videos || []);
+      // Refresh videos
+      const videosRes = await fetch(
+        `${API_BASE}/uservideo/channel/${selectedChannelId}/videos`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (videosRes.ok) {
+        const data = await videosRes.json();
+        setVideos(data.videos || []);
+      }
+
+      // Reset form
+      setShowUploadModal(false);
+      setVideoUri(null);
+      setVideoName("");
+      setVideoDescription("");
+      setVideoCategory("");
+      setVideoType("short");
+      setThumbnailUri(null);
+      setAgreeTerms(false);
+    } catch (error) {
+      console.log("Upload error →", error);
+      setUploadError(error.message || "Upload failed");
+    } finally {
+      setUploading(false);
     }
-
-    // Reset form
-    setShowUploadModal(false);
-    setVideoUri(null);
-    setVideoName("");
-    setVideoDescription("");
-    setVideoCategory("");
-    setVideoType("short");
-    setThumbnailUri(null);
-    setAgreeTerms(false);
-  } catch (error) {
-    console.log("Upload error →", error);
-    setUploadError(error.message || "Upload failed");
-  } finally {
-    setUploading(false);
-  }
-};
+  };
 
   // ================= LOADING =================
   if (loading) {
@@ -495,7 +504,13 @@ const pickImage = async (type) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <Navbar onMenuPress={() => {}} points={0} />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={
+          route.name === "Create" ? undefined : styles.stackContent
+        }
+      >
         {/* ========== BANNER ========== */}
         <View style={styles.bannerContainer}>
           <Image source={{ uri: bannerUrl }} style={styles.banner} />
@@ -877,44 +892,44 @@ const pickImage = async (type) => {
               )}
 
               {/* Video Type - Short / Long */}
-<Text style={styles.label}>Video Type</Text>
-<View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
-  <TouchableOpacity
-    style={[
-      styles.categoryChip,
-      videoType === "short" && styles.categoryChipActive,
-      { flex: 1, alignItems: "center" },
-    ]}
-    onPress={() => setVideoType("short")}
-  >
-    <Text
-      style={[
-        styles.categoryText,
-        videoType === "short" && styles.categoryTextActive,
-      ]}
-    >
-      Short
-    </Text>
-  </TouchableOpacity>
+              <Text style={styles.label}>Video Type</Text>
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.categoryChip,
+                    videoType === "short" && styles.categoryChipActive,
+                    { flex: 1, alignItems: "center" },
+                  ]}
+                  onPress={() => setVideoType("short")}
+                >
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      videoType === "short" && styles.categoryTextActive,
+                    ]}
+                  >
+                    Short
+                  </Text>
+                </TouchableOpacity>
 
-  <TouchableOpacity
-    style={[
-      styles.categoryChip,
-      videoType === "long" && styles.categoryChipActive,
-      { flex: 1, alignItems: "center" },
-    ]}
-    onPress={() => setVideoType("long")}
-  >
-    <Text
-      style={[
-        styles.categoryText,
-        videoType === "long" && styles.categoryTextActive,
-      ]}
-    >
-      Long
-    </Text>
-  </TouchableOpacity>
-</View>
+                <TouchableOpacity
+                  style={[
+                    styles.categoryChip,
+                    videoType === "long" && styles.categoryChipActive,
+                    { flex: 1, alignItems: "center" },
+                  ]}
+                  onPress={() => setVideoType("long")}
+                >
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      videoType === "long" && styles.categoryTextActive,
+                    ]}
+                  >
+                    Long
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
               <Text style={styles.label}>Video Title *</Text>
               <TextInput
@@ -1002,7 +1017,63 @@ const pickImage = async (type) => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {route.name !== "Create" && (
+        <ChannelBottomTabs navigation={navigation} insets={insets} />
+      )}
     </SafeAreaView>
+  );
+}
+
+function ChannelBottomTabs({ navigation, insets }) {
+  const tabs = [
+    { label: "Home", icon: Home, screen: "Home" },
+    { label: "Shorts", icon: Play, screen: "Shorts" },
+    { label: "Create", icon: Plus, screen: "Create", center: true },
+    { label: "Subscribe", icon: Users, screen: "Subscribe" },
+    { label: "You", icon: User, screen: "You" },
+  ];
+
+  return (
+    <View
+      style={[
+        styles.bottomTabs,
+        {
+          height: 56 + insets.bottom,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+        },
+      ]}
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <TouchableOpacity
+            key={tab.label}
+            style={tab.center ? styles.bottomCenterTab : styles.bottomTab}
+            onPress={() =>
+              navigation.navigate("MainTabs", { screen: tab.screen })
+            }
+            activeOpacity={0.8}
+          >
+            {tab.center ? (
+              <View style={styles.bottomCenterButton}>
+                <Icon size={26} color="#fff" strokeWidth={2.5} />
+              </View>
+            ) : (
+              <Icon size={22} color="#a1a1aa" strokeWidth={1.8} />
+            )}
+            <Text
+              style={[
+                styles.bottomTabLabel,
+                tab.center && styles.bottomTabLabelActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 }
 
@@ -1011,6 +1082,55 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0f0f0f",
+  },
+  stackContent: {
+    paddingBottom: 88,
+  },
+  bottomTabs: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "#0f0f0f",
+    borderTopWidth: 0.5,
+    borderTopColor: "#333",
+    paddingTop: 6,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  bottomTab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  bottomCenterTab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomCenterButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ef4444",
+  },
+  bottomTabLabel: {
+    color: "#a1a1aa",
+    fontSize: 10,
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  bottomTabLabelActive: {
+    color: "#fff",
   },
   loadingContainer: {
     flex: 1,
