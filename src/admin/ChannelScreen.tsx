@@ -1,985 +1,3 @@
-// import React, { useState, useEffect } from "react";
-// import {
-//   View,
-//   Text,
-//   TextInput,
-//   TouchableOpacity,
-//   ScrollView,
-//   Modal,
-//   Image,
-//   ActivityIndicator,
-//   Alert,
-//   StyleSheet,
-//   Platform,
-//   SafeAreaView,
-//   KeyboardAvoidingView,
-// } from "react-native";
-// import {
-//   Edit,
-//   Video as VideoIcon,
-//   Plus,
-//   X,
-//   ChevronDown,
-// } from "lucide-react-native";
-// import AsyncStorage from "@react-native-async-storage/async-storage";
-// import * as ImagePicker from "expo-image-picker";
-// import * as DocumentPicker from "expo-document-picker";
-
-// // ⚠️ Apna API base yahan daalo
-// const API_BASE = "https://exp://192.168.1.14:8081/api";
-// const API_CATEGORY = "https://exp://192.168.1.14:8081/api/category";
-// const BACKEND_URL = "https://exp://192.168.1.14:8081";
-
-// const STATIC_CATEGORIES = [
-//   { _id: "1", name: "Gaming" },
-//   { _id: "2", name: "Education" },
-//   { _id: "3", name: "Entertainment" },
-//   { _id: "4", name: "Music" },
-//   { _id: "5", name: "Technology" },
-//   { _id: "6", name: "Sports" },
-//   { _id: "7", name: "Cooking" },
-//   { _id: "8", name: "Travel" },
-// ];
-
-// export default function ChannelScreen({ navigation }) {
-//   const [channels, setChannels] = useState([]);
-//   const [selectedChannelId, setSelectedChannelId] = useState(null);
-//   const [channel, setChannel] = useState(null);
-//   const [categories, setCategories] = useState([]);
-//   const [loading, setLoading] = useState(true);
-
-//   // Create Channel Modal
-//   const [showCreateModal, setShowCreateModal] = useState(false);
-//   const [newChannel, setNewChannel] = useState({
-//     name: "",
-//     channelDescription: "",
-//     category: "",
-//     channelImageUri: null,
-//     channelBannerUri: null,
-//     contactemail: "",
-//   });
-//   const [createError, setCreateError] = useState("");
-//   const [creating, setCreating] = useState(false);
-
-//   // Upload Video Modal
-//   const [showUploadModal, setShowUploadModal] = useState(false);
-//   const [selectedUploadChannelId, setSelectedUploadChannelId] = useState("");
-//   const [videoUri, setVideoUri] = useState(null);
-//   const [videoName, setVideoName] = useState("");
-//   const [videoDescription, setVideoDescription] = useState("");
-//   const [videoCategory, setVideoCategory] = useState("");
-//   const [thumbnailUri, setThumbnailUri] = useState(null);
-//   const [agreeTerms, setAgreeTerms] = useState(false);
-//   const [uploadError, setUploadError] = useState("");
-//   const [uploading, setUploading] = useState(false);
-
-//   // ================= HELPERS =================
-//   const getToken = async () => {
-//     return await AsyncStorage.getItem("token");
-//   };
-
-//   // ================= FETCH CATEGORIES =================
-//   useEffect(() => {
-//     const fetchCategories = async () => {
-//       try {
-//         const res = await fetch(API_CATEGORY);
-//         if (!res.ok) throw new Error("Failed");
-//         const data = await res.json();
-//         setCategories(
-//           Array.isArray(data) && data.length > 0 ? data : STATIC_CATEGORIES,
-//         );
-//       } catch (e) {
-//         setCategories(STATIC_CATEGORIES);
-//       }
-//     };
-//     fetchCategories();
-//   }, []);
-
-//   // ================= FETCH USER CHANNELS =================
-//   useEffect(() => {
-//     const fetchChannels = async () => {
-//       const token = await getToken();
-//       if (!token) {
-//         setLoading(false);
-//         setShowCreateModal(true);
-//         return;
-//       }
-
-//       try {
-//         setLoading(true);
-//         const res = await fetch(`${API_BASE}/uservideo/channel`, {
-//           headers: { Authorization: `Bearer ${token}` },
-//         });
-
-//         if (!res.ok) throw new Error("Failed to fetch channels");
-
-//         const data = await res.json();
-//         const userChannels = data.channels || [];
-//         setChannels(userChannels);
-
-//         if (userChannels.length > 0) {
-//           setSelectedChannelId(userChannels[0]._id);
-//           setChannel(userChannels[0]);
-//         } else {
-//           // No channel → force create
-//           setShowCreateModal(true);
-//         }
-//       } catch (err) {
-//         console.log(err);
-//         setShowCreateModal(true);
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchChannels();
-//   }, []);
-
-//   // ================= IMAGE PICKER =================
-//   const pickImage = async (type) => {
-//     const result = await ImagePicker.launchImageLibraryAsync({
-//       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-//       allowsEditing: true,
-//       quality: 0.8,
-//     });
-
-//     if (!result.canceled) {
-//       const uri = result.assets[0].uri;
-//       if (type === "avatar") {
-//         setNewChannel((prev) => ({ ...prev, channelImageUri: uri }));
-//       } else if (type === "banner") {
-//         setNewChannel((prev) => ({ ...prev, channelBannerUri: uri }));
-//       } else if (type === "thumbnail") {
-//         setThumbnailUri(uri);
-//       }
-//     }
-//   };
-
-//   // ================= VIDEO PICKER =================
-//   const pickVideo = async () => {
-//     const result = await DocumentPicker.getDocumentAsync({
-//       type: "video/*",
-//       copyToCacheDirectory: true,
-//     });
-
-//     if (!result.canceled && result.assets?.[0]) {
-//       setVideoUri(result.assets[0].uri);
-//     }
-//   };
-
-//   // ================= CREATE CHANNEL =================
-//   const handleCreateChannel = async () => {
-//     const token = await getToken();
-//     if (!token) {
-//       setCreateError("Please login first");
-//       return;
-//     }
-
-//     if (!newChannel.name.trim()) {
-//       setCreateError("Channel name is required");
-//       return;
-//     }
-//     if (!newChannel.category) {
-//       setCreateError("Please select a category");
-//       return;
-//     }
-
-//     try {
-//       setCreating(true);
-//       setCreateError("");
-
-//       const formData = new FormData();
-//       formData.append("name", newChannel.name.trim());
-//       formData.append(
-//         "channeldescription",
-//         newChannel.channelDescription || "",
-//       );
-//       formData.append("category", newChannel.category);
-//       formData.append("contactemail", newChannel.contactemail || "");
-
-//       if (newChannel.channelImageUri) {
-//         formData.append("channelImage", {
-//           uri: newChannel.channelImageUri,
-//           type: "image/jpeg",
-//           name: "avatar.jpg",
-//         });
-//       }
-
-//       if (newChannel.channelBannerUri) {
-//         formData.append("channelBanner", {
-//           uri: newChannel.channelBannerUri,
-//           type: "image/jpeg",
-//           name: "banner.jpg",
-//         });
-//       }
-
-//       const response = await fetch(`${API_BASE}/uservideo/createchannel`, {
-//         method: "POST",
-//         headers: {
-//           Authorization: `Bearer ${token}`,
-//           "Content-Type": "multipart/form-data",
-//         },
-//         body: formData,
-//       });
-
-//       const result = await response.json();
-
-//       if (!response.ok) {
-//         throw new Error(result.message || "Failed to create channel");
-//       }
-
-//       // Refresh channels
-//       const channelsRes = await fetch(`${API_BASE}/uservideo/channel`, {
-//         headers: { Authorization: `Bearer ${token}` },
-//       });
-
-//       if (channelsRes.ok) {
-//         const data = await channelsRes.json();
-//         const updated = data.channels || [];
-//         setChannels(updated);
-//         setSelectedChannelId(result.channel._id);
-//         setChannel(result.channel);
-//       }
-
-//       // Reset create form
-//       setNewChannel({
-//         name: "",
-//         channelDescription: "",
-//         category: "",
-//         channelImageUri: null,
-//         channelBannerUri: null,
-//         contactemail: "",
-//       });
-//       setShowCreateModal(false);
-
-//       // ✅ Channel create hone ke baad Upload Video form open karo
-//       setSelectedUploadChannelId(result.channel._id);
-//       setShowUploadModal(true);
-
-//       Alert.alert("Success", "Channel created! Now upload your first video.");
-//     } catch (error) {
-//       console.log(error);
-//       setCreateError(error.message || "Failed to create channel");
-//     } finally {
-//       setCreating(false);
-//     }
-//   };
-
-//   // ================= UPLOAD VIDEO =================
-//   const handleUploadVideo = async () => {
-//     const token = await getToken();
-//     if (!token) {
-//       setUploadError("Please login first");
-//       return;
-//     }
-
-//     if (!selectedUploadChannelId) {
-//       setUploadError("Please select a channel");
-//       return;
-//     }
-//     if (!videoUri) {
-//       setUploadError("Please select a video file");
-//       return;
-//     }
-//     if (!videoName.trim()) {
-//       setUploadError("Please enter a video title");
-//       return;
-//     }
-//     if (!videoCategory) {
-//       setUploadError("Please select a category");
-//       return;
-//     }
-//     if (!agreeTerms) {
-//       setUploadError("Please agree to the terms");
-//       return;
-//     }
-
-//     try {
-//       setUploading(true);
-//       setUploadError("");
-
-//       const formData = new FormData();
-//       formData.append("name", videoName.trim());
-//       formData.append("description", videoDescription || "");
-//       formData.append("category", videoCategory);
-//       formData.append("video", {
-//         uri: videoUri,
-//         type: "video/mp4",
-//         name: "video.mp4",
-//       });
-
-//       if (thumbnailUri) {
-//         formData.append("thumbnail", {
-//           uri: thumbnailUri,
-//           type: "image/jpeg",
-//           name: "thumbnail.jpg",
-//         });
-//       }
-
-//       const response = await fetch(
-//         `${API_BASE}/uservideo/upload/${selectedUploadChannelId}`,
-//         {
-//           method: "POST",
-//           headers: {
-//             Authorization: `Bearer ${token}`,
-//             "Content-Type": "multipart/form-data",
-//           },
-//           body: formData,
-//         },
-//       );
-
-//       const result = await response.json();
-
-//       if (!response.ok) {
-//         throw new Error(result.message || "Failed to upload video");
-//       }
-
-//       Alert.alert("Success", "Video uploaded successfully!");
-
-//       // Reset
-//       setShowUploadModal(false);
-//       setVideoUri(null);
-//       setVideoName("");
-//       setVideoDescription("");
-//       setVideoCategory("");
-//       setThumbnailUri(null);
-//       setAgreeTerms(false);
-//     } catch (error) {
-//       console.log(error);
-//       setUploadError(error.message || "Upload failed");
-//     } finally {
-//       setUploading(false);
-//     }
-//   };
-
-//   // ================= LOADING =================
-//   if (loading) {
-//     return (
-//       <View style={styles.loadingContainer}>
-//         <ActivityIndicator size="large" color="#ef4444" />
-//         <Text style={styles.loadingText}>Loading channels...</Text>
-//       </View>
-//     );
-//   }
-
-//   // ================= UI =================
-//   return (
-//     <SafeAreaView style={styles.container}>
-//       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-//         {/* Header */}
-//         <View style={styles.header}>
-//           <Text style={styles.headerTitle}>
-//             {channel?.name || "Your Channel"}
-//           </Text>
-//           <Text style={styles.headerSubtitle}>
-//             {channel
-//               ? `@${channel.name?.replace(/\s+/g, "")}`
-//               : "Create your first channel"}
-//           </Text>
-//         </View>
-
-//         {/* Action Buttons */}
-//         <View style={styles.actions}>
-//           <TouchableOpacity
-//             style={[styles.btn, styles.btnBlue]}
-//             onPress={() => setShowCreateModal(true)}
-//           >
-//             <Plus size={18} color="#fff" />
-//             <Text style={styles.btnText}>Create Channel</Text>
-//           </TouchableOpacity>
-
-//           {channels.length > 0 && (
-//             <TouchableOpacity
-//               style={[styles.btn, styles.btnGreen]}
-//               onPress={() => {
-//                 setSelectedUploadChannelId(
-//                   selectedChannelId || channels[0]._id,
-//                 );
-//                 setShowUploadModal(true);
-//               }}
-//             >
-//               <VideoIcon size={18} color="#fff" />
-//               <Text style={styles.btnText}>Upload Video</Text>
-//             </TouchableOpacity>
-//           )}
-//         </View>
-
-//         {/* Channel List */}
-//         {channels.length > 0 && (
-//           <View style={styles.channelList}>
-//             <Text style={styles.sectionTitle}>Your Channels</Text>
-//             {channels.map((ch) => (
-//               <TouchableOpacity
-//                 key={ch._id}
-//                 style={[
-//                   styles.channelCard,
-//                   selectedChannelId === ch._id && styles.channelCardActive,
-//                 ]}
-//                 onPress={() => {
-//                   setSelectedChannelId(ch._id);
-//                   setChannel(ch);
-//                 }}
-//               >
-//                 <Text style={styles.channelName}>{ch.name}</Text>
-//                 <Text style={styles.channelHandle}>
-//                   @{ch.name?.replace(/\s+/g, "")}
-//                 </Text>
-//               </TouchableOpacity>
-//             ))}
-//           </View>
-//         )}
-//       </ScrollView>
-
-//       {/* ================= CREATE CHANNEL MODAL ================= */}
-//       <Modal visible={showCreateModal} animationType="slide" transparent>
-//         <KeyboardAvoidingView
-//           behavior={Platform.OS === "ios" ? "padding" : "height"}
-//           style={styles.modalOverlay}
-//         >
-//           <View style={styles.modalContent}>
-//             <View style={styles.modalHeader}>
-//               <Text style={styles.modalTitle}>Create a new channel</Text>
-//               <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-//                 <X size={24} color="#fff" />
-//               </TouchableOpacity>
-//             </View>
-
-//             <ScrollView showsVerticalScrollIndicator={false}>
-//               {createError ? (
-//                 <View style={styles.errorBox}>
-//                   <Text style={styles.errorText}>{createError}</Text>
-//                 </View>
-//               ) : null}
-
-//               <Text style={styles.label}>Channel name *</Text>
-//               <TextInput
-//                 style={styles.input}
-//                 placeholder="My Awesome Channel"
-//                 placeholderTextColor="#71717a"
-//                 value={newChannel.name}
-//                 onChangeText={(t) => setNewChannel({ ...newChannel, name: t })}
-//               />
-
-//               <Text style={styles.label}>Category *</Text>
-//               <View style={styles.selectBox}>
-//                 {categories.map((cat) => (
-//                   <TouchableOpacity
-//                     key={cat._id}
-//                     style={[
-//                       styles.categoryChip,
-//                       newChannel.category === cat._id &&
-//                         styles.categoryChipActive,
-//                     ]}
-//                     onPress={() =>
-//                       setNewChannel({ ...newChannel, category: cat._id })
-//                     }
-//                   >
-//                     <Text
-//                       style={[
-//                         styles.categoryText,
-//                         newChannel.category === cat._id &&
-//                           styles.categoryTextActive,
-//                       ]}
-//                     >
-//                       {cat.name}
-//                     </Text>
-//                   </TouchableOpacity>
-//                 ))}
-//               </View>
-
-//               <Text style={styles.label}>Channel Image (avatar)</Text>
-//               <TouchableOpacity
-//                 style={styles.pickBtn}
-//                 onPress={() => pickImage("avatar")}
-//               >
-//                 <Text style={styles.pickBtnText}>
-//                   {newChannel.channelImageUri ? "Change Avatar" : "Pick Avatar"}
-//                 </Text>
-//               </TouchableOpacity>
-//               {newChannel.channelImageUri && (
-//                 <Image
-//                   source={{ uri: newChannel.channelImageUri }}
-//                   style={styles.avatarPreview}
-//                 />
-//               )}
-
-//               <Text style={styles.label}>Channel Banner</Text>
-//               <TouchableOpacity
-//                 style={styles.pickBtn}
-//                 onPress={() => pickImage("banner")}
-//               >
-//                 <Text style={styles.pickBtnText}>
-//                   {newChannel.channelBannerUri
-//                     ? "Change Banner"
-//                     : "Pick Banner"}
-//                 </Text>
-//               </TouchableOpacity>
-//               {newChannel.channelBannerUri && (
-//                 <Image
-//                   source={{ uri: newChannel.channelBannerUri }}
-//                   style={styles.bannerPreview}
-//                 />
-//               )}
-
-//               <Text style={styles.label}>Description (optional)</Text>
-//               <TextInput
-//                 style={[styles.input, styles.textarea]}
-//                 placeholder="Tell people about your channel..."
-//                 placeholderTextColor="#71717a"
-//                 multiline
-//                 value={newChannel.channelDescription}
-//                 onChangeText={(t) =>
-//                   setNewChannel({ ...newChannel, channelDescription: t })
-//                 }
-//               />
-
-//               <Text style={styles.label}>Contact email (optional)</Text>
-//               <TextInput
-//                 style={styles.input}
-//                 placeholder="example@email.com"
-//                 placeholderTextColor="#71717a"
-//                 keyboardType="email-address"
-//                 autoCapitalize="none"
-//                 value={newChannel.contactemail}
-//                 onChangeText={(t) =>
-//                   setNewChannel({ ...newChannel, contactemail: t })
-//                 }
-//               />
-
-//               <View style={styles.modalActions}>
-//                 <TouchableOpacity
-//                   style={[styles.modalBtn, styles.cancelBtn]}
-//                   onPress={() => setShowCreateModal(false)}
-//                 >
-//                   <Text style={styles.btnText}>Cancel</Text>
-//                 </TouchableOpacity>
-//                 <TouchableOpacity
-//                   style={[styles.modalBtn, styles.createBtn]}
-//                   onPress={handleCreateChannel}
-//                   disabled={creating}
-//                 >
-//                   {creating ? (
-//                     <ActivityIndicator color="#fff" />
-//                   ) : (
-//                     <Text style={styles.btnText}>Create channel</Text>
-//                   )}
-//                 </TouchableOpacity>
-//               </View>
-//             </ScrollView>
-//           </View>
-//         </KeyboardAvoidingView>
-//       </Modal>
-
-//       {/* ================= UPLOAD VIDEO MODAL ================= */}
-//       <Modal visible={showUploadModal} animationType="slide" transparent>
-//         <KeyboardAvoidingView
-//           behavior={Platform.OS === "ios" ? "padding" : "height"}
-//           style={styles.modalOverlay}
-//         >
-//           <View style={styles.modalContent}>
-//             <View style={styles.modalHeader}>
-//               <Text style={styles.modalTitle}>Upload Video</Text>
-//               <TouchableOpacity onPress={() => setShowUploadModal(false)}>
-//                 <X size={24} color="#fff" />
-//               </TouchableOpacity>
-//             </View>
-
-//             <ScrollView showsVerticalScrollIndicator={false}>
-//               {uploadError ? (
-//                 <View style={styles.errorBox}>
-//                   <Text style={styles.errorText}>{uploadError}</Text>
-//                 </View>
-//               ) : null}
-
-//               <Text style={styles.label}>Upload to channel *</Text>
-//               <View style={styles.selectBox}>
-//                 {channels.map((ch) => (
-//                   <TouchableOpacity
-//                     key={ch._id}
-//                     style={[
-//                       styles.categoryChip,
-//                       selectedUploadChannelId === ch._id &&
-//                         styles.categoryChipActive,
-//                     ]}
-//                     onPress={() => setSelectedUploadChannelId(ch._id)}
-//                   >
-//                     <Text
-//                       style={[
-//                         styles.categoryText,
-//                         selectedUploadChannelId === ch._id &&
-//                           styles.categoryTextActive,
-//                       ]}
-//                     >
-//                       {ch.name}
-//                     </Text>
-//                   </TouchableOpacity>
-//                 ))}
-//               </View>
-
-//               <Text style={styles.label}>Video file *</Text>
-//               <TouchableOpacity style={styles.pickBtn} onPress={pickVideo}>
-//                 <Text style={styles.pickBtnText}>
-//                   {videoUri ? "Change Video" : "Select Video"}
-//                 </Text>
-//               </TouchableOpacity>
-//               {videoUri && (
-//                 <Text style={styles.fileName} numberOfLines={1}>
-//                   Selected
-//                 </Text>
-//               )}
-
-//               <Text style={styles.label}>Thumbnail (optional)</Text>
-//               <TouchableOpacity
-//                 style={styles.pickBtn}
-//                 onPress={() => pickImage("thumbnail")}
-//               >
-//                 <Text style={styles.pickBtnText}>
-//                   {thumbnailUri ? "Change Thumbnail" : "Pick Thumbnail"}
-//                 </Text>
-//               </TouchableOpacity>
-//               {thumbnailUri && (
-//                 <Image
-//                   source={{ uri: thumbnailUri }}
-//                   style={styles.bannerPreview}
-//                 />
-//               )}
-
-//               <Text style={styles.label}>Video Title *</Text>
-//               <TextInput
-//                 style={styles.input}
-//                 placeholder="Enter video title"
-//                 placeholderTextColor="#71717a"
-//                 value={videoName}
-//                 onChangeText={setVideoName}
-//               />
-
-//               <Text style={styles.label}>Video Category *</Text>
-//               <View style={styles.selectBox}>
-//                 {categories.map((cat) => (
-//                   <TouchableOpacity
-//                     key={cat._id}
-//                     style={[
-//                       styles.categoryChip,
-//                       videoCategory === cat._id && styles.categoryChipActive,
-//                     ]}
-//                     onPress={() => setVideoCategory(cat._id)}
-//                   >
-//                     <Text
-//                       style={[
-//                         styles.categoryText,
-//                         videoCategory === cat._id && styles.categoryTextActive,
-//                       ]}
-//                     >
-//                       {cat.name}
-//                     </Text>
-//                   </TouchableOpacity>
-//                 ))}
-//               </View>
-
-//               <Text style={styles.label}>Description</Text>
-//               <TextInput
-//                 style={[styles.input, styles.textarea]}
-//                 placeholder="Describe your video..."
-//                 placeholderTextColor="#71717a"
-//                 multiline
-//                 value={videoDescription}
-//                 onChangeText={setVideoDescription}
-//               />
-
-//               <TouchableOpacity
-//                 style={styles.checkboxRow}
-//                 onPress={() => setAgreeTerms(!agreeTerms)}
-//               >
-//                 <View
-//                   style={[
-//                     styles.checkbox,
-//                     agreeTerms && styles.checkboxChecked,
-//                   ]}
-//                 >
-//                   {agreeTerms && (
-//                     <Text style={{ color: "#fff", fontSize: 12 }}>✓</Text>
-//                   )}
-//                 </View>
-//                 <Text style={styles.checkboxLabel}>
-//                   I agree to the Terms of Service and confirm I own/have rights
-//                   to this content.
-//                 </Text>
-//               </TouchableOpacity>
-
-//               <View style={styles.modalActions}>
-//                 <TouchableOpacity
-//                   style={[styles.modalBtn, styles.cancelBtn]}
-//                   onPress={() => setShowUploadModal(false)}
-//                   disabled={uploading}
-//                 >
-//                   <Text style={styles.btnText}>Cancel</Text>
-//                 </TouchableOpacity>
-//                 <TouchableOpacity
-//                   style={[styles.modalBtn, styles.uploadBtn]}
-//                   onPress={handleUploadVideo}
-//                   disabled={uploading}
-//                 >
-//                   {uploading ? (
-//                     <ActivityIndicator color="#fff" />
-//                   ) : (
-//                     <Text style={styles.btnText}>Upload</Text>
-//                   )}
-//                 </TouchableOpacity>
-//               </View>
-//             </ScrollView>
-//           </View>
-//         </KeyboardAvoidingView>
-//       </Modal>
-//     </SafeAreaView>
-//   );
-// }
-
-// // ================= STYLES =================
-// const styles = StyleSheet.create({
-//   container: {
-//     flex: 1,
-//     backgroundColor: "#0f0f0f",
-//   },
-//   loadingContainer: {
-//     flex: 1,
-//     backgroundColor: "#0f0f0f",
-//     justifyContent: "center",
-//     alignItems: "center",
-//   },
-//   loadingText: {
-//     color: "#a1a1aa",
-//     marginTop: 12,
-//   },
-//   header: {
-//     padding: 24,
-//     paddingTop: 16,
-//   },
-//   headerTitle: {
-//     fontSize: 28,
-//     fontWeight: "bold",
-//     color: "#fff",
-//   },
-//   headerSubtitle: {
-//     fontSize: 15,
-//     color: "#a1a1aa",
-//     marginTop: 4,
-//   },
-//   actions: {
-//     flexDirection: "row",
-//     flexWrap: "wrap",
-//     gap: 12,
-//     paddingHorizontal: 24,
-//     marginBottom: 24,
-//   },
-//   btn: {
-//     flexDirection: "row",
-//     alignItems: "center",
-//     gap: 8,
-//     paddingVertical: 12,
-//     paddingHorizontal: 18,
-//     borderRadius: 999,
-//   },
-//   btnBlue: {
-//     backgroundColor: "#2563eb",
-//   },
-//   btnGreen: {
-//     backgroundColor: "#16a34a",
-//   },
-//   btnText: {
-//     color: "#fff",
-//     fontWeight: "600",
-//     fontSize: 14,
-//   },
-//   channelList: {
-//     paddingHorizontal: 24,
-//   },
-//   sectionTitle: {
-//     fontSize: 16,
-//     fontWeight: "600",
-//     color: "#a1a1aa",
-//     marginBottom: 12,
-//   },
-//   channelCard: {
-//     backgroundColor: "#1a1a1a",
-//     borderRadius: 12,
-//     padding: 16,
-//     marginBottom: 10,
-//     borderWidth: 1,
-//     borderColor: "#333",
-//   },
-//   channelCardActive: {
-//     borderColor: "#ef4444",
-//   },
-//   channelName: {
-//     color: "#fff",
-//     fontSize: 16,
-//     fontWeight: "600",
-//   },
-//   channelHandle: {
-//     color: "#a1a1aa",
-//     fontSize: 13,
-//     marginTop: 2,
-//   },
-
-//   // Modal
-//   modalOverlay: {
-//     flex: 1,
-//     backgroundColor: "rgba(0,0,0,0.75)",
-//     justifyContent: "flex-end",
-//   },
-//   modalContent: {
-//     backgroundColor: "#1a1a1a",
-//     borderTopLeftRadius: 24,
-//     borderTopRightRadius: 24,
-//     maxHeight: "90%",
-//     padding: 20,
-//   },
-//   modalHeader: {
-//     flexDirection: "row",
-//     justifyContent: "space-between",
-//     alignItems: "center",
-//     marginBottom: 16,
-//   },
-//   modalTitle: {
-//     fontSize: 20,
-//     fontWeight: "bold",
-//     color: "#fff",
-//   },
-//   errorBox: {
-//     backgroundColor: "#450a0a",
-//     borderWidth: 1,
-//     borderColor: "#991b1b",
-//     padding: 12,
-//     borderRadius: 12,
-//     marginBottom: 12,
-//   },
-//   errorText: {
-//     color: "#fca5a5",
-//     fontSize: 13,
-//   },
-//   label: {
-//     color: "#d4d4d8",
-//     fontSize: 13,
-//     marginBottom: 6,
-//     marginTop: 12,
-//   },
-//   input: {
-//     backgroundColor: "#0f0f0f",
-//     borderWidth: 1,
-//     borderColor: "#374151",
-//     borderRadius: 12,
-//     paddingHorizontal: 14,
-//     paddingVertical: 12,
-//     color: "#fff",
-//     fontSize: 15,
-//   },
-//   textarea: {
-//     height: 80,
-//     textAlignVertical: "top",
-//   },
-//   selectBox: {
-//     flexDirection: "row",
-//     flexWrap: "wrap",
-//     gap: 8,
-//   },
-//   categoryChip: {
-//     paddingHorizontal: 14,
-//     paddingVertical: 8,
-//     borderRadius: 999,
-//     backgroundColor: "#272727",
-//     borderWidth: 1,
-//     borderColor: "#333",
-//   },
-//   categoryChipActive: {
-//     backgroundColor: "#ef4444",
-//     borderColor: "#ef4444",
-//   },
-//   categoryText: {
-//     color: "#a1a1aa",
-//     fontSize: 13,
-//   },
-//   categoryTextActive: {
-//     color: "#fff",
-//     fontWeight: "600",
-//   },
-//   pickBtn: {
-//     backgroundColor: "#272727",
-//     paddingVertical: 12,
-//     borderRadius: 12,
-//     alignItems: "center",
-//     borderWidth: 1,
-//     borderColor: "#374151",
-//   },
-//   pickBtnText: {
-//     color: "#fff",
-//     fontSize: 14,
-//   },
-//   avatarPreview: {
-//     width: 80,
-//     height: 80,
-//     borderRadius: 40,
-//     marginTop: 10,
-//   },
-//   bannerPreview: {
-//     width: "100%",
-//     height: 100,
-//     borderRadius: 12,
-//     marginTop: 10,
-//   },
-//   fileName: {
-//     color: "#a1a1aa",
-//     fontSize: 12,
-//     marginTop: 6,
-//   },
-//   checkboxRow: {
-//     flexDirection: "row",
-//     alignItems: "flex-start",
-//     gap: 10,
-//     marginTop: 16,
-//   },
-//   checkbox: {
-//     width: 20,
-//     height: 20,
-//     borderRadius: 4,
-//     borderWidth: 1.5,
-//     borderColor: "#52525b",
-//     justifyContent: "center",
-//     alignItems: "center",
-//     marginTop: 2,
-//   },
-//   checkboxChecked: {
-//     backgroundColor: "#ef4444",
-//     borderColor: "#ef4444",
-//   },
-//   checkboxLabel: {
-//     flex: 1,
-//     color: "#a1a1aa",
-//     fontSize: 12,
-//     lineHeight: 18,
-//   },
-//   modalActions: {
-//     flexDirection: "row",
-//     justifyContent: "flex-end",
-//     gap: 12,
-//     marginTop: 24,
-//     marginBottom: 10,
-//   },
-//   modalBtn: {
-//     paddingVertical: 12,
-//     paddingHorizontal: 20,
-//     borderRadius: 999,
-//   },
-//   cancelBtn: {
-//     backgroundColor: "#3f3f46",
-//   },
-//   createBtn: {
-//     backgroundColor: "#2563eb",
-//   },
-//   uploadBtn: {
-//     backgroundColor: "#16a34a",
-//   },
-// });
-
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -1037,17 +55,19 @@ export default function ChannelScreen({ navigation }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("Videos");
-
+const [videoType, setVideoType] = useState("short"); // short or long
   // Create Channel Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newChannel, setNewChannel] = useState({
-    name: "",
-    channelDescription: "",
-    category: "",
-    channelImageUri: null,
-    channelBannerUri: null,
-    contactemail: "",
-  });
+const [newChannel, setNewChannel] = useState({
+  name: "",
+  channelDescription: "",
+  category: "",
+  channelImageUri: null,
+  channelBannerUri: null,
+  channelImageAsset: null,   // ← add this
+  channelBannerAsset: null,  // ← add this
+  contactemail: "",
+});
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -1154,24 +174,35 @@ export default function ChannelScreen({ navigation }) {
   }, [selectedChannelId]);
 
   // ================= IMAGE / VIDEO PICKER =================
-  const pickImage = async (type) => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      quality: 0.8,
-    });
+  // ================= IMAGE / VIDEO PICKER =================
+const pickImage = async (type) => {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    allowsEditing: true,
+    quality: 0.8,
+  });
 
-    if (!result.canceled) {
-      const uri = result.assets[0].uri;
-      if (type === "avatar") {
-        setNewChannel((prev) => ({ ...prev, channelImageUri: uri }));
-      } else if (type === "banner") {
-        setNewChannel((prev) => ({ ...prev, channelBannerUri: uri }));
-      } else if (type === "thumbnail") {
-        setThumbnailUri(uri);
-      }
+  if (!result.canceled && result.assets?.[0]) {
+    const asset = result.assets[0];
+
+    if (type === "avatar") {
+      setNewChannel((prev) => ({
+        ...prev,
+        channelImageUri: asset.uri,
+        channelImageAsset: asset, // full asset save kar rahe hain
+      }));
+    } else if (type === "banner") {
+      setNewChannel((prev) => ({
+        ...prev,
+        channelBannerUri: asset.uri,
+        channelBannerAsset: asset,
+      }));
+    } else if (type === "thumbnail") {
+      setThumbnailUri(asset.uri);
+      // thumbnail ke liye bhi asset rakh sakte ho agar chahiye
     }
-  };
+  }
+};
 
   const pickVideo = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -1185,187 +216,229 @@ export default function ChannelScreen({ navigation }) {
   };
 
   // ================= CREATE CHANNEL =================
-  const handleCreateChannel = async () => {
-    const token = await getToken();
-    if (!token) {
-      setCreateError("Please login first");
-      return;
-    }
-    if (!newChannel.name.trim()) {
-      setCreateError("Channel name is required");
-      return;
-    }
-    if (!newChannel.category) {
-      setCreateError("Please select a category");
-      return;
-    }
+ const handleCreateChannel = async () => {
+  const token = await getToken();
+  if (!token) {
+    setCreateError("Please login first");
+    return;
+  }
+  if (!newChannel.name.trim()) {
+    setCreateError("Channel name is required");
+    return;
+  }
+  if (!newChannel.category) {
+    setCreateError("Please select a category");
+    return;
+  }
 
-    try {
-      setCreating(true);
-      setCreateError("");
+  try {
+    setCreating(true);
+    setCreateError("");
 
-      const formData = new FormData();
-      formData.append("name", newChannel.name.trim());
-      formData.append(
-        "channeldescription",
-        newChannel.channelDescription || "",
-      );
-      formData.append("category", newChannel.category);
-      formData.append("contactemail", newChannel.contactemail || "");
+    const formData = new FormData();
 
-      if (newChannel.channelImageUri) {
-        formData.append("channelImage", {
-          uri: newChannel.channelImageUri,
-          type: "image/jpeg",
-          name: "avatar.jpg",
-        });
-      }
-      if (newChannel.channelBannerUri) {
-        formData.append("channelBanner", {
-          uri: newChannel.channelBannerUri,
-          type: "image/jpeg",
-          name: "banner.jpg",
-        });
-      }
+    formData.append("name", newChannel.name.trim());
+    formData.append("channeldescription", newChannel.channelDescription || "");
+    formData.append("category", newChannel.category);
+    formData.append("contactemail", newChannel.contactemail || "");
 
-      const response = await fetch(`${API_BASE}/uservideo/createchannel`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-        body: formData,
+    // Avatar
+    if (newChannel.channelImageAsset) {
+      const asset = newChannel.channelImageAsset;
+      formData.append("channelImage", {
+        uri: asset.uri,
+        type: asset.mimeType || "image/jpeg",
+        name: asset.fileName || `avatar_${Date.now()}.jpg`,
       });
-
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.message || "Failed to create channel");
-
-      const channelsRes = await fetch(`${API_BASE}/uservideo/channel`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (channelsRes.ok) {
-        const data = await channelsRes.json();
-        const updated = data.channels || [];
-        setChannels(updated);
-        setSelectedChannelId(result.channel._id);
-        setChannel(result.channel);
-      }
-
-      setNewChannel({
-        name: "",
-        channelDescription: "",
-        category: "",
-        channelImageUri: null,
-        channelBannerUri: null,
-        contactemail: "",
-      });
-      setShowCreateModal(false);
-
-      // Channel create hone ke baad Upload form open
-      setSelectedUploadChannelId(result.channel._id);
-      setShowUploadModal(true);
-
-      Alert.alert("Success", "Channel created! Now upload your first video.");
-    } catch (error) {
-      setCreateError(error.message || "Failed to create channel");
-    } finally {
-      setCreating(false);
     }
-  };
+
+    // Banner
+    if (newChannel.channelBannerAsset) {
+      const asset = newChannel.channelBannerAsset;
+      formData.append("channelBanner", {
+        uri: asset.uri,
+        type: asset.mimeType || "image/jpeg",
+        name: asset.fileName || `banner_${Date.now()}.jpg`,
+      });
+    }
+
+    console.log("Sending with XMLHttpRequest...");
+
+    // ========== XMLHttpRequest (yeh important hai) ==========
+    const result = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.open("POST", `${API_BASE}/uservideo/createchannel`);
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      // Content-Type mat set karo
+
+      xhr.onload = () => {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(response);
+          } else {
+            reject(new Error(response.message || `Error ${xhr.status}`));
+          }
+        } catch (e) {
+          reject(new Error("Invalid server response"));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.ontimeout = () => reject(new Error("Request timeout"));
+
+      xhr.send(formData);
+    });
+
+    console.log("Create success →", result);
+
+    // Refresh channels
+    const channelsRes = await fetch(`${API_BASE}/uservideo/channel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (channelsRes.ok) {
+      const data = await channelsRes.json();
+      const updated = data.channels || [];
+      setChannels(updated);
+      setSelectedChannelId(result.channel._id);
+      setChannel(result.channel);
+    }
+
+    // Reset form
+    setNewChannel({
+      name: "",
+      channelDescription: "",
+      category: "",
+      channelImageUri: null,
+      channelBannerUri: null,
+      channelImageAsset: null,
+      channelBannerAsset: null,
+      contactemail: "",
+    });
+    setShowCreateModal(false);
+
+    setSelectedUploadChannelId(result.channel._id);
+    setShowUploadModal(true);
+
+    Alert.alert("Success", "Channel created successfully!");
+  } catch (error) {
+    console.log("Create channel error →", error);
+    setCreateError(error.message || "Failed to create channel");
+  } finally {
+    setCreating(false);
+  }
+};
 
   // ================= UPLOAD VIDEO =================
   const handleUploadVideo = async () => {
-    const token = await getToken();
-    if (!token) {
-      setUploadError("Please login first");
-      return;
-    }
-    if (!selectedUploadChannelId) {
-      setUploadError("Please select a channel");
-      return;
-    }
-    if (!videoUri) {
-      setUploadError("Please select a video file");
-      return;
-    }
-    if (!videoName.trim()) {
-      setUploadError("Please enter a video title");
-      return;
-    }
-    if (!videoCategory) {
-      setUploadError("Please select a category");
-      return;
-    }
-    if (!agreeTerms) {
-      setUploadError("Please agree to the terms");
-      return;
-    }
+  const token = await getToken();
+  if (!token) {
+    setUploadError("Please login first");
+    return;
+  }
+  if (!selectedUploadChannelId) {
+    setUploadError("Please select a channel");
+    return;
+  }
+  if (!videoUri) {
+    setUploadError("Please select a video file");
+    return;
+  }
+  if (!videoName.trim()) {
+    setUploadError("Please enter a video title");
+    return;
+  }
+  if (!videoCategory) {
+    setUploadError("Please select a category");
+    return;
+  }
+  if (!agreeTerms) {
+    setUploadError("Please agree to the terms");
+    return;
+  }
 
-    try {
-      setUploading(true);
-      setUploadError("");
+  try {
+    setUploading(true);
+    setUploadError("");
 
-      const formData = new FormData();
-      formData.append("name", videoName.trim());
-      formData.append("description", videoDescription || "");
-      formData.append("category", videoCategory);
-      formData.append("video", {
-        uri: videoUri,
-        type: "video/mp4",
-        name: "video.mp4",
+    const formData = new FormData();
+    formData.append("name", videoName.trim());
+    formData.append("description", videoDescription || "");
+    formData.append("category", videoCategory);
+    formData.append("videoType", videoType); // ← Web jaisa important field
+
+    // Video file
+    formData.append("video", {
+      uri: videoUri,
+      type: "video/mp4",
+      name: `video_${Date.now()}.mp4`,
+    });
+
+    // Thumbnail (optional)
+    if (thumbnailUri) {
+      formData.append("thumbnail", {
+        uri: thumbnailUri,
+        type: "image/jpeg",
+        name: `thumbnail_${Date.now()}.jpg`,
       });
-
-      if (thumbnailUri) {
-        formData.append("thumbnail", {
-          uri: thumbnailUri,
-          type: "image/jpeg",
-          name: "thumbnail.jpg",
-        });
-      }
-
-      const response = await fetch(
-        `${API_BASE}/uservideo/upload/${selectedUploadChannelId}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-          body: formData,
-        },
-      );
-
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.message || "Failed to upload video");
-
-      Alert.alert("Success", "Video uploaded successfully!");
-
-      // Refresh videos
-      const videosRes = await fetch(
-        `${API_BASE}/uservideo/channel/${selectedChannelId}/videos`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (videosRes.ok) {
-        const data = await videosRes.json();
-        setVideos(data.videos || []);
-      }
-
-      setShowUploadModal(false);
-      setVideoUri(null);
-      setVideoName("");
-      setVideoDescription("");
-      setVideoCategory("");
-      setThumbnailUri(null);
-      setAgreeTerms(false);
-    } catch (error) {
-      setUploadError(error.message || "Upload failed");
-    } finally {
-      setUploading(false);
     }
-  };
+
+    // ========== XMLHttpRequest (same as create channel) ==========
+    const result = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(
+        "POST",
+        `${API_BASE}/uservideo/upload/${selectedUploadChannelId}`
+      );
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+      xhr.onload = () => {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(response);
+          } else {
+            reject(new Error(response.message || `Error ${xhr.status}`));
+          }
+        } catch (e) {
+          reject(new Error("Invalid server response"));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.send(formData);
+    });
+
+    Alert.alert("Success", "Video uploaded successfully!");
+
+    // Refresh videos
+    const videosRes = await fetch(
+      `${API_BASE}/uservideo/channel/${selectedChannelId}/videos`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (videosRes.ok) {
+      const data = await videosRes.json();
+      setVideos(data.videos || []);
+    }
+
+    // Reset form
+    setShowUploadModal(false);
+    setVideoUri(null);
+    setVideoName("");
+    setVideoDescription("");
+    setVideoCategory("");
+    setVideoType("short");
+    setThumbnailUri(null);
+    setAgreeTerms(false);
+  } catch (error) {
+    console.log("Upload error →", error);
+    setUploadError(error.message || "Upload failed");
+  } finally {
+    setUploading(false);
+  }
+};
 
   // ================= LOADING =================
   if (loading) {
@@ -1802,6 +875,46 @@ export default function ChannelScreen({ navigation }) {
                   style={styles.bannerPreview}
                 />
               )}
+
+              {/* Video Type - Short / Long */}
+<Text style={styles.label}>Video Type</Text>
+<View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+  <TouchableOpacity
+    style={[
+      styles.categoryChip,
+      videoType === "short" && styles.categoryChipActive,
+      { flex: 1, alignItems: "center" },
+    ]}
+    onPress={() => setVideoType("short")}
+  >
+    <Text
+      style={[
+        styles.categoryText,
+        videoType === "short" && styles.categoryTextActive,
+      ]}
+    >
+      Short
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[
+      styles.categoryChip,
+      videoType === "long" && styles.categoryChipActive,
+      { flex: 1, alignItems: "center" },
+    ]}
+    onPress={() => setVideoType("long")}
+  >
+    <Text
+      style={[
+        styles.categoryText,
+        videoType === "long" && styles.categoryTextActive,
+      ]}
+    >
+      Long
+    </Text>
+  </TouchableOpacity>
+</View>
 
               <Text style={styles.label}>Video Title *</Text>
               <TextInput
