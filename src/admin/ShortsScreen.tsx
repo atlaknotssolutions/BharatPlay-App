@@ -35,6 +35,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 
 import { API_ORIGIN, API_USERVIDEO } from "../../config/api";
+import { getViewSocket } from "../utils/viewSocket";
 
 const { height, width } = Dimensions.get("window");
 
@@ -252,32 +253,6 @@ function ShortVideo({
     }
   }, [isActive, muted, player]);
 
-  useEffect(() => {
-    if (!isActive || !item.id) return;
-
-    const registerWatch = async () => {
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const rawUser = await AsyncStorage.getItem("user");
-        const user = rawUser ? JSON.parse(rawUser) : null;
-
-        await fetch(`${API_USERVIDEO}/${item.id}/view`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            watchedPercent: 0,
-            userId: user?._id || user?.id || null,
-          }),
-        });
-      } catch {}
-    };
-
-    registerWatch();
-  }, [isActive, item.id]);
-
   /* -------------------------------------------------------
      VIDEO PROGRESS
   ------------------------------------------------------- */
@@ -466,6 +441,33 @@ export default function ShortsScreen() {
   useEffect(() => {
     loadShorts();
   }, [loadShorts]);
+
+  useEffect(() => {
+    let active = true;
+    let currentSocket;
+    let viewHandler;
+
+    getViewSocket().then((socket) => {
+      if (!active || !socket) return;
+      currentSocket = socket;
+      const handleViewCountUpdated = ({ videoId, views }) => {
+        setShortsData((items) =>
+          items.map((item) =>
+            String(item.id) === String(videoId) ? { ...item, views } : item,
+          ),
+        );
+      };
+      socket.on("view-count-updated", handleViewCountUpdated);
+      viewHandler = handleViewCountUpdated;
+    });
+
+    return () => {
+      active = false;
+      if (currentSocket && viewHandler) {
+        currentSocket.off("view-count-updated", viewHandler);
+      }
+    };
+  }, []);
 
   /* =======================================================
      VIEWABILITY

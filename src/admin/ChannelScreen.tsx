@@ -89,6 +89,19 @@ export default function ChannelScreen({ navigation }) {
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  const getVideoType = (video) => {
+    const rawType = video?.videoType;
+    const types = Array.isArray(rawType) ? rawType : [rawType];
+    return types.map((type) => String(type).toLowerCase());
+  };
+
+  const longVideos = videos.filter((video) =>
+    getVideoType(video).includes("long"),
+  );
+  const shortVideos = videos.filter((video) =>
+    getVideoType(video).includes("short"),
+  );
+
   const getToken = async () => await AsyncStorage.getItem("token");
 
   const getImageUrl = (path) => {
@@ -623,9 +636,9 @@ export default function ChannelScreen({ navigation }) {
         <View style={styles.tabContent}>
           {activeTab === "Videos" && (
             <>
-              {videos.length > 0 ? (
+              {longVideos.length > 0 ? (
                 <FlatList
-                  data={videos}
+                  data={longVideos}
                   keyExtractor={(item) => item._id}
                   renderItem={renderVideo}
                   numColumns={2}
@@ -663,9 +676,23 @@ export default function ChannelScreen({ navigation }) {
           )}
 
           {activeTab === "Shorts" && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No Shorts yet</Text>
-            </View>
+            <>
+              {shortVideos.length > 0 ? (
+                <FlatList
+                  data={shortVideos}
+                  keyExtractor={(item) => item._id}
+                  renderItem={renderVideo}
+                  numColumns={2}
+                  scrollEnabled={false}
+                  columnWrapperStyle={{ gap: 10 }}
+                  contentContainerStyle={{ gap: 14 }}
+                />
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyTitle}>No Shorts yet</Text>
+                </View>
+              )}
+            </>
           )}
 
           {activeTab === "Playlists" && (

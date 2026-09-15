@@ -59,7 +59,10 @@ export default function Navbar({ onMenuPress, points = 0 }) {
   };
 
   // ===== Trust Score (same logic as web) =====
-  const trustScore = Math.max(0, Math.min(100, Number(user?.trustScore ?? 50)));
+  const parsedTrustScore = Number(user?.trustScore);
+  const trustScore = Number.isFinite(parsedTrustScore)
+    ? Math.max(0, Math.min(100, parsedTrustScore))
+    : 50;
   const trustTier =
     user?.trustTier ||
     (trustScore >= 70 ? "premium" : trustScore >= 40 ? "medium" : "restricted");

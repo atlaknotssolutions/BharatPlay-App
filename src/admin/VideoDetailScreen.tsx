@@ -29,6 +29,7 @@ import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getViewSocket } from "../utils/viewSocket";
 import { API_ORIGIN } from "../../config/api";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -131,8 +132,6 @@ export default function VideoDetailScreen() {
   const [upNextOverlay, setUpNextOverlay] = useState(null);
   const [countdownLeft, setCountdownLeft] = useState(null);
 
-  const [viewCounted, setViewCounted] = useState(false);
-
   // ==================== REFS ====================
   const controlsTimer = useRef(null);
   const lastTap = useRef(0);
@@ -140,20 +139,47 @@ export default function VideoDetailScreen() {
   const countdownTimerRef = useRef(null);
   const nextTargetRef = useRef(null);
   const playedVideoIdsRef = useRef(new Set());
-  const viewTracked = useRef(false);
   const resumeApplied = useRef(false);
   const lastProgressSent = useRef(0);
+  const viewRequestInFlight = useRef(false);
   const latestTimeRef = useRef(0);
   const latestDurationRef = useRef(0);
 
+  useEffect(() => {
+    let active = true;
+    let currentSocket;
+    let viewHandler;
+
+    getViewSocket().then((socket) => {
+      if (!active || !socket) return;
+      currentSocket = socket;
+      const handleViewCountUpdated = ({ videoId, views }) => {
+        if (String(videoId) !== String(routeId)) return;
+        setVideoDetails((previous) => ({ ...previous, views }));
+      };
+      socket.on("view-count-updated", handleViewCountUpdated);
+      viewHandler = handleViewCountUpdated;
+    });
+
+    return () => {
+      active = false;
+      if (currentSocket && viewHandler) {
+        currentSocket.off("view-count-updated", viewHandler);
+      }
+    };
+  }, [routeId]);
+
   const saveWatchProgress = useCallback(
     async (time, videoDuration) => {
-      if (!routeId || !videoDuration || !time) return;
+      if (!routeId || !videoDuration || !time || viewRequestInFlight.current) {
+        return;
+      }
       const percent = Math.max(
         1,
         Math.min(100, Math.round((time / videoDuration) * 100)),
       );
 
+      viewRequestInFlight.current = true;
       try {
         const token = await AsyncStorage.getItem("token");
         const userStr = await AsyncStorage.getItem("user");
@@ -172,40 +198,12 @@ export default function VideoDetailScreen() {
         if (!res.ok) console.warn("Watch progress save failed:", res.status);
       } catch (error) {
         console.warn("Watch progress save error:", error);
+      } finally {
+        viewRequestInFlight.current = false;
       }
     },
     [routeId],
   );
-
-  useEffect(() => {
-    if (!routeId || viewTracked.current) return;
-
-    viewTracked.current = true;
-    const registerWatch = async () => {
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const userStr = await AsyncStorage.getItem("user");
-        const user = userStr ? JSON.parse(userStr) : null;
-
-        await fetch(`${API_BASE}/${routeId}/view`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            watchedPercent: 0,
-            userId: user?._id || user?.id || null,
-          }),
-        });
-      } catch {}
-    };
-
-    registerWatch();
-    return () => {
-      viewTracked.current = false;
-    };
-  }, [routeId]);
 
   // ==================== MEDIA URLS ====================
   const resolvedVideoUrl = useMemo(() => {
@@ -341,7 +339,6 @@ export default function VideoDetailScreen() {
       setCurrentTime(0);
       setDuration(0);
       setIsPlaying(true);
-      setViewCounted(false);
       resumeApplied.current = false;
       lastProgressSent.current = 0;
       latestTimeRef.current = 0;
@@ -447,7 +444,6 @@ export default function VideoDetailScreen() {
                 0,
             ),
           );
-          if ((payload.watchedPercent || 0) >= 80) setViewCounted(true);
         }
       } catch (e) {
         console.warn("Video details error:", e);
@@ -504,38 +500,6 @@ export default function VideoDetailScreen() {
 
     fetchAll();
   }, [routeId]);
-
-  // Count view at 80%
-  useEffect(() => {
-    if (!routeId || !duration || viewCounted) return;
-    const percent = Math.min(100, Math.round((currentTime / duration) * 100));
-    if (percent < 80) return;
-
-    setViewCounted(true);
-    (async () => {
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const userStr = await AsyncStorage.getItem("user");
-        const user = userStr ? JSON.parse(userStr) : null;
-
-        const res = await fetch(`${API_BASE}/${routeId}/view`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            watchedPercent: percent,
-            userId: user?._id || user?.id || null,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (data?.success && typeof data.views === "number") {
-          setVideoDetails((prev) => ({ ...prev, views: data.views }));
-        }
-      } catch {}
-    })();
-  }, [currentTime, duration, routeId, viewCounted]);
 
   // Resume from last saved position
   useEffect(() => {

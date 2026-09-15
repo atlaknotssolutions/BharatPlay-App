@@ -144,6 +144,10 @@ export function ProfileScreen() {
     const id = source._id || source.id || v._id || v.id;
     if (!id) return null;
 
+    const rawViews =
+      source.views ?? source.viewCount ?? v.views ?? v.viewCount ?? 0;
+    const views = Number(rawViews) || 0;
+
     return {
       id,
       _id: id,
@@ -159,8 +163,8 @@ export function ProfileScreen() {
           : source.channel || v.channel) ||
         "Unknown",
       duration: formatDuration(source.duration || v.duration),
-      views: source.views || v.views || 0,
-      likes: source.likesCount || source.likes || v.likesCount || v.likes || 0,
+      views,
+      likes: source.likesCount || source.likes || v.likesCount || v.likes || null,
       videoUrl: source.videoUrl || v.videoUrl,
       watchedAt: v.watchedAt || v.watchedDate || null,
       uploadDate: source.createdAt || v.createdAt,
@@ -470,7 +474,10 @@ export function ProfileScreen() {
 
         setMyVideos(allVideos);
 
-        const totalViews = allVideos.reduce((s, v) => s + (v.views || 0), 0);
+        const totalViews = allVideos.reduce(
+          (sum, video) => sum + (Number(video.views) || 0),
+          0,
+        );
         setUser((prev) =>
           prev
             ? {
@@ -758,7 +765,7 @@ export function ProfileScreen() {
             {video.title}
           </Text>
           <Text style={styles.videoMeta}>
-            {(video.views || 0).toLocaleString()} views
+            {Number(video.views || 0).toLocaleString()} views
             {"  •  "}👍 {video.likes || 0}
           </Text>
           {video.channel ? (
@@ -1086,7 +1093,7 @@ export function ProfileScreen() {
                         {video.title}
                       </Text>
                       <Text style={styles.videoMeta}>
-                        {(video.views || 0).toLocaleString()} views
+                        {Number(video.views || 0).toLocaleString()} views
                         {video.watchedAt
                           ? `  •  Watched ${new Date(
                               video.watchedAt,
@@ -1578,7 +1585,7 @@ export function ProfileScreen() {
                 />
                 <Text style={styles.detailTitle}>{selectedVideo.title}</Text>
                 <Text style={{ color: "#a1a1aa", marginTop: 8, fontSize: 13 }}>
-                  {(selectedVideo.views || 0).toLocaleString()} views
+                  {Number(selectedVideo.views || 0).toLocaleString()} views
                   {"  •  "}👍 {selectedVideo.likes || 0}
                 </Text>
                 <TouchableOpacity

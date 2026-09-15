@@ -18,6 +18,7 @@ import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Navbar from "./Navbar";
 import TopicChips from "./TopicChips";
+import { getViewSocket } from "../utils/viewSocket";
 
 import { API_ORIGIN } from "../../config/api";
 
@@ -377,6 +378,43 @@ export default function NetflixStylePage() {
       // Backend category filter support hone pe yahan call karo
     }
   }, [selectedCategoryId]);
+
+  useEffect(() => {
+    let active = true;
+    let currentSocket;
+    let viewHandler;
+
+    getViewSocket().then((socket) => {
+      if (!active || !socket) return;
+      currentSocket = socket;
+      const handleViewCountUpdated = ({ videoId, views }) => {
+        const updateViews = (items) =>
+          items.map((item) =>
+            String(item.id) === String(videoId) ? { ...item, views } : item,
+          );
+
+        setRecommended(updateViews);
+        setTrending(updateViews);
+        setLatest(updateViews);
+        setMixedFeed(updateViews);
+        setShorts((items) =>
+          items.map((item) =>
+            String(item.id) === String(videoId) ? { ...item, views } : item,
+          ),
+        );
+      };
+      socket.on("view-count-updated", handleViewCountUpdated);
+
+      viewHandler = handleViewCountUpdated;
+    });
+
+    return () => {
+      active = false;
+      if (currentSocket && viewHandler) {
+        currentSocket.off("view-count-updated", viewHandler);
+      }
+    };
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
